@@ -1,11 +1,76 @@
 <!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Gaurav's Trading System</title>
-<style>body{background:#0a0e1a;color:#e2e8f0;font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:16px}
-.logo{width:60px;height:60px;border-radius:12px;background:rgba(34,197,94,.12);border:2px solid #22c55e;display:flex;align-items:center;justify-content:center;font-size:22px;color:#22c55e;font-weight:700}
-h1{font-size:22px;font-weight:600}p{color:#64748b;font-size:14px}</style></head>
-<body>
-<div class="logo">GT</div>
-<h1>Gaurav's Trading System</h1>
-<p>Dashboard initialising... First scan runs at 4:30 PM IST on the next weekday.</p>
-<p style="font-size:12px;color:#334155">Powered by Dhan API · Minervini SEPA · GitHub Actions</p>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gaurav's Trading Dashboard — 2026-04-04 02:13 IST</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0e1a;color:#e2e8f0;font-family:'IBM Plex Sans',sans-serif;font-size:13px}
+.tw{overflow-x:auto} table{width:100%;border-collapse:collapse}
+th{background:#0f1525;color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.07em;padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;position:sticky;top:0;z-index:5}
+tr:hover td{background:rgba(255,255,255,.03)}
+</style></head><body>
+
+<div style="background:#0f1525;border-bottom:1px solid rgba(255,255,255,.07);padding:16px 24px;display:flex;justify-content:space-between;align-items:center">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="width:38px;height:38px;border-radius:9px;background:rgba(34,197,94,.12);border:1px solid #22c55e;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:13px;color:#22c55e;font-weight:600">GT</div>
+    <div>
+      <div style="font-size:16px;font-weight:600">Gaurav's Trading System</div>
+      <div style="font-size:10px;color:#64748b;font-family:monospace;margin-top:2px;letter-spacing:.04em">NIFTY 500 · MINERVINI SEPA · DHAN API · 2026-04-04 02:13 IST</div>
+    </div>
+  </div>
+  <div style="font-family:monospace;font-size:11px;color:#64748b">Capital ₹50L · Risk 1%</div>
+</div>
+
+<!-- MARKET DIRECTION -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)">
+  <div style="background:#0a0e1a;padding:20px 24px">
+    <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Market regime</div>
+    <div style="font-size:28px;font-weight:700;color:#64748b;margin-bottom:6px">UNKNOWN</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <span style="font-size:12px;color:#94a3b8">Deploy capital:</span>
+      <span style="font-size:18px;font-weight:700;color:#64748b">75%</span>
+      <span style="font-size:12px;color:#64748b">= ₹37.5L active</span>
+    </div>
+    
+  </div>
+  <div style="background:#0a0e1a;padding:20px 24px">
+    <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Nifty 50 levels</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div><div style="font-size:10px;color:#64748b">CMP</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">—</div></div>
+      <div><div style="font-size:10px;color:#64748b">50 SMA</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">—</div></div>
+      <div><div style="font-size:10px;color:#64748b">200 SMA</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">—</div></div>
+      <div><div style="font-size:10px;color:#64748b">1M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:#ef4444">+0.0%</div></div>
+      <div><div style="font-size:10px;color:#64748b">3M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:#ef4444">+0.0%</div></div>
+      <div><div style="font-size:10px;color:#64748b">VIX</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:#22c55e">—</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- STATS -->
+<div style="display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid rgba(255,255,255,.07)">
+  <div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:20px;font-weight:600;color:#e2e8f0">165</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">Scanned</div></div><div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:20px;font-weight:600;color:#e2e8f0">0</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">Qualified</div></div><div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:20px;font-weight:600;color:#22c55e">0</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">TT 7-8</div></div><div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:20px;font-weight:600;color:#f59e0b">0</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">VCP</div></div><div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:20px;font-weight:600;color:#a78bfa">0</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">A+ Grade</div></div><div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:20px;font-weight:600;color:#3b82f6">0</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">A Grade</div></div>
+</div>
+
+<!-- SECTOR ROTATION -->
+<div style="padding:16px 24px;border-bottom:1px solid rgba(255,255,255,.07)">
+  <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Sectoral rotation</div>
+  <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:8px"></div>
+</div>
+
+<!-- TABLE -->
+<div class="tw">
+<table>
+  <thead><tr>
+    <th>#</th><th>Symbol</th><th>CMP</th><th>TT Score</th><th>Scan Score</th>
+    <th>Grade</th><th>RS Filter</th><th>3M Ret</th><th>Vol Qual</th><th>VCP</th>
+    <th>Trade Risk</th><th>Dist 200</th><th>Entry</th><th>Stop</th><th>T1 (2R)</th><th>Pos Size</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+</div>
+
+<div style="padding:10px 24px;border-top:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between;font-size:10px;color:#64748b;font-family:monospace;background:#0f1525">
+  <span>Source: Dhan API · NSE_EQ · Daily EOD · Minervini SEPA · VIX-adjusted exposure</span>
+  <span>Not financial advice · Auto-generated 2026-04-04 02:13 IST</span>
+</div>
 </body></html>
