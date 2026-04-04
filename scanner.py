@@ -328,6 +328,33 @@ def build_html(results, mkt, sectors, scan_time, total):
     signals_html = "".join(f'<div style="font-size:11px;color:#94a3b8;margin-bottom:3px">{sg}</div>' for sg in mkt.get("signals", []))
     eff_capital  = round(CAPITAL * mkt.get("exposure", 75) / 100 / 100000, 1)
 
+    # Pre-compute stats to avoid nested f-string issues
+    a_count   = sum(1 for r in results if r['grade'] == 'A')
+    stats_items = [
+        (total,       "Scanned",   "#e2e8f0"),
+        (len(results),"Qualified", "#e2e8f0"),
+        (tt7,         "TT 7-8",    "#22c55e"),
+        (vcp,         "VCP",       "#f59e0b"),
+        (ap,          "A+ Grade",  "#a78bfa"),
+        (a_count,     "A Grade",   "#3b82f6"),
+    ]
+    stats_html = "".join(
+        f'<div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)">'
+        f'<div style="font-family:monospace;font-size:20px;font-weight:600;color:{c}">{v}</div>'
+        f'<div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">{l}</div>'
+        f'</div>'
+        for v, l, c in stats_items
+    )
+
+    # Pre-compute colour variables for mkt returns
+    r1m_val   = mkt.get('r1m', 0) or 0
+    r3m_val   = mkt.get('r3m', 0) or 0
+    vix_val2  = mkt.get('vix') or 0
+    r1m_col   = '#22c55e' if r1m_val > 0 else '#ef4444'
+    r3m_col   = '#22c55e' if r3m_val > 0 else '#ef4444'
+    vix_col   = '#ef4444' if vix_val2 > 20 else '#22c55e'
+    vix_disp  = str(mkt.get('vix')) if mkt.get('vix') else '—'
+
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Gaurav's Trading Dashboard — {scan_time}</title>
@@ -369,17 +396,16 @@ tr:hover td{{background:rgba(255,255,255,.03)}}
       <div><div style="font-size:10px;color:#64748b">CMP</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">{mkt.get('cmp','—')}</div></div>
       <div><div style="font-size:10px;color:#64748b">50 SMA</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">{mkt.get('s50','—')}</div></div>
       <div><div style="font-size:10px;color:#64748b">200 SMA</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">{mkt.get('s200','—')}</div></div>
-      <div><div style="font-size:10px;color:#64748b">1M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{'#22c55e' if (mkt.get('r1m',0) or 0)>0 else '#ef4444'}">{mkt.get('r1m',0):+.1f}%</div></div>
-      <div><div style="font-size:10px;color:#64748b">3M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{'#22c55e' if (mkt.get('r3m',0) or 0)>0 else '#ef4444'}">{mkt.get('r3m',0):+.1f}%</div></div>
-      <div><div style="font-size:10px;color:#64748b">VIX</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{'#ef4444' if (mkt.get('vix') or 0)>20 else '#22c55e'}">{mkt.get('vix') or '—'}</div></div>
+      <div><div style="font-size:10px;color:#64748b">1M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{r1m_col}">{r1m_val:+.1f}%</div></div>
+      <div><div style="font-size:10px;color:#64748b">3M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{r3m_col}">{r3m_val:+.1f}%</div></div>
+      <div><div style="font-size:10px;color:#64748b">VIX</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{vix_col}">{vix_disp}</div></div>
     </div>
   </div>
 </div>
 
 <!-- STATS -->
 <div style="display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid rgba(255,255,255,.07)">
-  {''.join(f"""<div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:20px;font-weight:600;color:{c}">{v}</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">{l}</div></div>"""
-  for v,l,c in [(total,"Scanned","#e2e8f0"),(len(results),"Qualified","#e2e8f0"),(tt7,"TT 7-8","#22c55e"),(vcp,"VCP","#f59e0b"),(ap,"A+ Grade","#a78bfa"),( sum(1 for r in results if r['grade']=='A'),"A Grade","#3b82f6")])}
+  {stats_html}
 </div>
 
 <!-- SECTOR ROTATION -->
