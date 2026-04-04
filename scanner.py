@@ -1,499 +1,352 @@
 """
-GAURAV'S TRADING SYSTEM — AUTOMATED MARKET SCANNER
-Dhan API + Minervini SEPA + Market Direction + Sector Rotation
-Runs daily via GitHub Actions at 4:30 PM IST
+GAURAV'S TRADING SYSTEM — AUTOMATED MARKET SCANNER v3
+Auto-fetches correct security IDs from Dhan instrument master
 """
-
-import requests, json, time, datetime, os, sys
+import requests, json, time, datetime, os, sys, io, csv
 from pathlib import Path
 
-# ── CREDENTIALS (loaded from GitHub Secrets) ──────────────
 CLIENT_ID    = os.environ.get("DHAN_CLIENT_ID",    "1100847090")
 ACCESS_TOKEN = os.environ.get("DHAN_ACCESS_TOKEN", "")
+CAPITAL      = 5_000_000
+RISK_PCT     = 0.01
+BASE         = "https://api.dhan.co/v2"
+HEADERS      = {"Content-Type":"application/json","access-token":ACCESS_TOKEN,"client-id":CLIENT_ID}
 
-CAPITAL      = 5_000_000   # ₹50 Lakhs
-RISK_PCT     = 0.01        # 1% per trade
+NIFTY500_SYMBOLS = [
+    "RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","SBIN","BAJFINANCE",
+    "BHARTIARTL","KOTAKBANK","WIPRO","AXISBANK","ASIANPAINT","MARUTI","TITAN","SUNPHARMA",
+    "HCLTECH","ULTRACEMCO","BAJAJFINSV","NESTLEIND","POWERGRID","NTPC","ONGC","JSWSTEEL",
+    "COALINDIA","M&M","TATASTEEL","ADANIENT","ADANIPORTS","LTIM","TECHM","CIPLA","DRREDDY",
+    "EICHERMOT","BRITANNIA","DIVISLAB","APOLLOHOSP","HINDALCO","GRASIM","SBILIFE","HDFCLIFE",
+    "ICICIPRULI","LT","TATACONSUM","ITC","BPCL","IOC","HINDPETRO","VEDL","TATAMOTORS",
+    "TRENT","PIDILITIND","SIEMENS","GODREJCP","HAVELLS","DABUR","MARICO","COLPAL","ABB",
+    "BOSCHLTD","CUMMINSIND","MUTHOOTFIN","CHOLAFIN","AUROPHARMA","TORNTPHARM","LUPIN",
+    "ALKEM","GLENMARK","BIOCON","ZYDUSLIFE","IPCALAB","RECLTD","PFC","CANBK","UNIONBANK",
+    "BANKBARODA","PNB","FEDERALBNK","IDFCFIRSTB","BANDHANBNK","MOTHERSON","BALKRISIND",
+    "APOLLOTYRE","MRF","EXIDEIND","TATACHEM","UPL","PIIND","COROMANDEL","LICHSGFIN","IRFC",
+    "TATAPOWER","ADANIGREEN","JSWENERGY","SUZLON","POLYCAB","KEI","CONCOR","HFCL",
+    "TATAELXSI","PERSISTENT","MPHASIS","COFORGE","LTTS","KPIT","CYIENT","BIRLASOFT",
+    "TANLA","ROUTE","INDIAMART","CAMS","CDSL","MCX","ANGELONE","DIXON","AMBER","VGUARD",
+    "CROMPTON","VOLTAS","BLUESTAR","GODREJPROP","OBEROIRLTY","DLF","PRESTIGE","SOBHA",
+    "PHOENIXLTD","SUNTV","ZOMATO","HAL","BEL","BHEL","ESCORTS","DEEPAKNTR","ATUL",
+    "NAVINFLUOR","PAGEIND","MCDOWELL-N","RADICO","LUXIND","SHOPERSTOP","KAYNES","SYRMA",
+    "TITAGARH","GNFC","CHAMBLFERT","NOCIL","VINATI","AARTI","FINEORG","ALKYLAMINE",
+    "CLEAN","MATRIMONY","CAMPUS","NYKAA","DELHIVERY","PVRINOX","GRSE","IRCTC",
+    "SHRIRAMFIN","BAJAJ-AUTO","HEROMOTOCO","TVSMOTOR","ASHOKLEY","AMARAJABAT",
+    "SCHAEFFLER","SUNDRMFAST","ENDURANCE","TIINDIA","BLUEDART","APLAPOLLO","JINDALSAW",
+    "RATNAMANI","WELSPUN","GMRAIRPORT","INTERGLOBE","VSTIND","GODFRYPHLP","CASTROLIND",
+    "PETRONET","GAIL","MGL","IGL","TORNTPOWER","CESC","INOXWIND","GREENPANEL",
+    "CENTURYTEX","ORIENTELEC","SYMPHONY","WHIRLPOOL","FINOLEX","ICRA","CRISIL",
+    "CREDITACC","IIFL","GEOJIT","NETWORK18","TV18BRDCST","INOXLEISUR","WONDERLA",
+    "BALRAMCHIN","DHAMPUR","TRIVENI","EIHOTEL","AVENUESUPRA","LATENTVIEW","INTELLECT",
+    "ECLERX","JUSTDIAL","IDEAFORGE","PAYTM","POLICYBAZAAR","SAPPHIRE","DEVYANI",
+    "NUVOCO","AVALON","MIDHANI","COCHINSHIP","RITES","RAILVIKAS","NHPC","SJVN",
+    "HUDCO","MOTILALOFS","BSE","RBLBANK","KARURVYSYA","DCBBANK","KTKBANK","SOUTHBANK",
+]
+seen = set()
+NIFTY500_SYMBOLS = [x for x in NIFTY500_SYMBOLS if not (x in seen or seen.add(x))]
 
-BASE    = "https://api.dhan.co/v2"
-HEADERS = {
-    "Content-Type": "application/json",
-    "access-token": ACCESS_TOKEN,
-    "client-id":    CLIENT_ID,
-}
-
-# ── NIFTY 500 — Top 150 liquid stocks ─────────────────────
-STOCKS = {
-    "RELIANCE":"2885","TCS":"11536","HDFCBANK":"1333","INFY":"1594",
-    "ICICIBANK":"4963","HINDUNILVR":"1394","SBIN":"3045","BAJFINANCE":"317",
-    "BHARTIARTL":"10604","KOTAKBANK":"1922","WIPRO":"3787","AXISBANK":"5900",
-    "ASIANPAINT":"236","MARUTI":"10999","TITAN":"3506","SUNPHARMA":"3351",
-    "HCLTECH":"1348","ULTRACEMCO":"11532","BAJAJFINSV":"16675","NESTLEIND":"17963",
-    "POWERGRID":"14977","NTPC":"11630","ONGC":"2475","JSWSTEEL":"11723",
-    "COALINDIA":"20374","M&M":"2031","TATASTEEL":"3499","ADANIENT":"25",
-    "ADANIPORTS":"15083","LTIM":"17818","TECHM":"13538","CIPLA":"694",
-    "DRREDDY":"881","EICHERMOT":"910","BRITANNIA":"547","DIVISLAB":"10243",
-    "APOLLOHOSP":"157","HINDALCO":"1363","GRASIM":"1108","SBILIFE":"21808",
-    "HDFCLIFE":"119","LT":"11483","TATACONSUM":"3460","ITC":"1660",
-    "BPCL":"526","IOC":"1624","HINDPETRO":"1406","VEDL":"3063",
-    "TATAMOTORS":"3456","TRENT":"3519","PIDILITIND":"2252","SIEMENS":"3150",
-    "GODREJCP":"10099","HAVELLS":"430","DABUR":"772","MARICO":"4067",
-    "COLPAL":"732","ABB":"13","BOSCHLTD":"500","CUMMINSIND":"771",
-    "MUTHOOTFIN":"3900","CHOLAFIN":"685","AUROPHARMA":"275","TORNTPHARM":"3518",
-    "LUPIN":"10440","ALKEM":"13751","GLENMARK":"1068","BIOCON":"3436",
-    "ZYDUSLIFE":"10940","IPCALAB":"1635","RECLTD":"2883","PFC":"14299",
-    "CANBK":"10794","UNIONBANK":"10957","BANKBARODA":"1452","PNB":"2730",
-    "FEDERALBNK":"1023","IDFCFIRSTB":"12086","BANDHANBNK":"541",
-    "MOTHERSON":"4204","BALKRISIND":"335","APOLLOTYRE":"157","MRF":"2277",
-    "EXIDEIND":"951","TATACHEM":"3443","UPL":"11287","PIIND":"2255",
-    "COROMANDEL":"752","GSPL":"21263","AAVAS":"19061","LICHSGFIN":"1975",
-    "IRFC":"20286","TATAPOWER":"3426","ADANIGREEN":"11931","JSWENERGY":"20650",
-    "SUZLON":"3347","POLYCAB":"20793","KEI":"1750","FINOLEX":"1030",
-    "CONCOR":"740","HFCL":"1372","TATAELXSI":"3453","PERSISTENT":"2171",
-    "MPHASIS":"2225","COFORGE":"20785","LTTS":"18365","KPIT":"20812",
-    "CYIENT":"771","BIRLASOFT":"20814","TANLA":"3449","ROUTE":"21145",
-    "INDIAMART":"21023","CAMS":"20820","CDSL":"20771","MCX":"14307",
-    "ANGELONE":"20871","DIXON":"20750","AMBER":"20704","VGUARD":"17015",
-    "CROMPTON":"17094","VOLTAS":"3681","BLUESTAR":"499","WHIRLPOOL":"3787",
-    "GODREJPROP":"10100","OBEROIRLTY":"14364","DLF":"1346","PRESTIGE":"2286",
-    "SOBHA":"3229","PHOENIXLTD":"2274","SUNTV":"3344","TV18BRDCST":"3561",
-    "PVRINOX":"20286","ZOMATO":"21296","NYKAA":"543384","DELHIVERY":"543529",
-    "IRCTC":"20286","HAL":"20266","BEL":"383","BHEL":"438",
-    "ESCORTS":"930","TITAGARH":"3507","RITES":"20286","GRSE":"20286",
-    "TATACHEM":"3443","GNFC":"1073","CHAMBLFERT":"670","DEEPAKNTR":"11038",
-    "ATUL":"210","NAVINFLUOR":"2189","ALKYLAMINE":"13726","CLEAN":"21371",
-    "FINEORG":"21013","NOCIL":"2165","VINATI":"3741","AARTI":"21014",
-    "PAGEIND":"14413","MCDOWELL-N":"16990","RADICO":"2872","GLOBUSSPR":"1090",
-    "LUXIND":"1992","TRENT":"3519","SHOPERSTOP":"3203","CAMPUS":"543294",
-    "MATRIMONY":"20752","KAYNES":"543278","SYRMA":"543573","AVALON":"543526",
-}
-
-# ── INDICES (NSE_INDICES segment) ─────────────────────────
-# Security IDs for major indices via Dhan
-INDICES = {
-    "NIFTY50":   {"id": "13",    "seg": "IDX_I"},
-    "BANKNIFTY": {"id": "25",    "seg": "IDX_I"},
-    "NIFTYIT":   {"id": "11",    "seg": "IDX_I"},
-    "NIFTYPHARMA":{"id":"10",   "seg": "IDX_I"},
-    "NIFTYAUTO": {"id": "14",   "seg": "IDX_I"},
-    "NIFTYFMCG": {"id": "16",   "seg": "IDX_I"},
-    "NIFTYMETAL": {"id":"17",   "seg": "IDX_I"},
-    "NIFTYREALTY":{"id":"12",   "seg": "IDX_I"},
-    "NIFTYENERGY":{"id":"15",   "seg": "IDX_I"},
-    "INDIAVIX":  {"id": "50",   "seg": "IDX_I"},
-}
-
-# ── DHAN API HELPERS ──────────────────────────────────────
-def dhan_historical(sec_id, seg="NSE_EQ", days=260):
-    to_dt   = datetime.date.today()
-    fr_dt   = to_dt - datetime.timedelta(days=days + 60)
-    payload = {
-        "securityId": sec_id, "exchangeSegment": seg,
-        "instrument": "INDEX" if seg == "IDX_I" else "EQUITY",
-        "expiryCode": 0, "oi": False,
-        "fromDate": fr_dt.strftime("%Y-%m-%d"),
-        "toDate":   to_dt.strftime("%Y-%m-%d"),
-    }
+def get_security_ids(symbols):
+    print("  Downloading Dhan NSE_EQ instrument master...")
     try:
-        r = requests.post(f"{BASE}/charts/historical",
-                          headers=HEADERS, json=payload, timeout=15)
-        if r.status_code == 200:
-            return r.json()
+        r = requests.get(f"{BASE}/instrument/NSE_EQ", headers=HEADERS, timeout=60)
+        print(f"  Master HTTP status: {r.status_code}")
+        if r.status_code != 200:
+            return {}
+        content = r.text
+        lines   = content.strip().split('\n')
+        print(f"  Master rows: {len(lines)}")
+        print(f"  Header: {lines[0][:200]}")
+        reader  = csv.reader(io.StringIO(content))
+        headers = [h.strip().lower() for h in next(reader)]
+
+        sym_col = next((headers.index(c) for c in ["sem_trading_symbol","trading_symbol","symbol","tradingsymbol"] if c in headers), None)
+        id_col  = next((headers.index(c) for c in ["sem_smst_security_id","security_id","securityid","sec_id"] if c in headers), None)
+
+        if sym_col is None:
+            for i,h in enumerate(headers):
+                if "symbol" in h: sym_col=i; break
+        if id_col is None:
+            for i,h in enumerate(headers):
+                if "security" in h and "id" in h: id_col=i; break
+
+        print(f"  sym_col={sym_col} id_col={id_col}")
+        if sym_col is None or id_col is None:
+            print(f"  All headers: {headers}")
+            return {}
+
+        symbol_set = set(symbols)
+        id_map = {}
+        for row in reader:
+            if len(row) <= max(sym_col, id_col): continue
+            sym = row[sym_col].strip().upper()
+            sid = row[id_col].strip()
+            if sym in symbol_set and sid:
+                id_map[sym] = sid
+
+        print(f"  Found {len(id_map)} of {len(symbols)} symbols")
+        return id_map
     except Exception as e:
-        pass
+        print(f"  ERROR: {e}")
+        return {}
+
+def get_index_ids():
+    try:
+        r = requests.get(f"{BASE}/instrument/IDX_I", headers=HEADERS, timeout=30)
+        if r.status_code != 200:
+            return {}
+        reader  = csv.reader(io.StringIO(r.text))
+        headers = [h.strip().lower() for h in next(reader)]
+        sym_col = next((headers.index(c) for c in ["sem_trading_symbol","trading_symbol","symbol"] if c in headers), None)
+        id_col  = next((headers.index(c) for c in ["sem_smst_security_id","security_id","securityid"] if c in headers), None)
+        if sym_col is None or id_col is None: return {}
+        id_map = {}
+        for row in reader:
+            if len(row) <= max(sym_col, id_col): continue
+            sym = row[sym_col].strip().upper()
+            sid = row[id_col].strip()
+            if sid: id_map[sym] = sid
+        return id_map
+    except: return {}
+
+def dhan_hist(sec_id, seg="NSE_EQ", days=280, instrument="EQUITY"):
+    to_dt = datetime.date.today()
+    fr_dt = to_dt - datetime.timedelta(days=days+80)
+    payload = {"securityId":str(sec_id),"exchangeSegment":seg,"instrument":instrument,
+               "expiryCode":0,"oi":False,"fromDate":fr_dt.strftime("%Y-%m-%d"),"toDate":to_dt.strftime("%Y-%m-%d")}
+    try:
+        r = requests.post(f"{BASE}/charts/historical", headers=HEADERS, json=payload, timeout=20)
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data,dict) and "close" in data and len(data["close"])>0:
+                return data
+    except: pass
     return None
 
-def dhan_ltp_batch(sec_ids):
-    """Batch LTP for up to 1000 NSE_EQ instruments."""
-    payload = {"NSE_EQ": sec_ids}
+def dhan_ltp(sid_list):
+    if not sid_list: return {}
     try:
-        r = requests.post(f"{BASE}/marketfeed/ltp",
-                          headers=HEADERS, json=payload, timeout=15)
+        r = requests.post(f"{BASE}/marketfeed/ltp", headers=HEADERS, json={"NSE_EQ":sid_list}, timeout=20)
         if r.status_code == 200:
-            return r.json().get("data", {}).get("NSE_EQ", {})
-    except Exception:
-        pass
+            raw = r.json().get("data",{}).get("NSE_EQ",{})
+            return {str(k):(v.get("last_price") if isinstance(v,dict) else v) for k,v in raw.items()}
+    except: pass
     return {}
 
-# ── CALCULATIONS ──────────────────────────────────────────
-def sma(vals, n):
-    if len(vals) < n: return None
-    return sum(vals[-n:]) / n
+def sma(v,n):
+    if len(v)<n: return None
+    return sum(v[-n:])/n
 
-def pct_chg(vals, n):
-    if len(vals) < n: return None
-    return (vals[-1] - vals[-n]) / vals[-n] * 100
+def pct(v,n):
+    if len(v)<n+1: return None
+    b=v[-(n+1)]; return ((v[-1]-b)/b*100) if b else None
 
 def analyse(sym, sid, hist, ltp=None):
     if not hist or "close" not in hist: return None
-    c = hist["close"]; h = hist.get("high",[]); lo = hist.get("low",[]); v = hist.get("volume",[])
-    if len(c) < 200: return None
-
-    cmp    = ltp if ltp else c[-1]
-    s50    = sma(c, 50);  s150 = sma(c, 150); s200 = sma(c, 200)
-    s200p  = sma(c[:-30], 200) if len(c) >= 230 else None
-    hi52   = max(h[-252:]) if len(h) >= 252 else max(h)
-    lo52   = min(lo[-252:]) if len(lo) >= 252 else min(lo)
-    hi30   = max(h[-30:])  if len(h) >= 30  else max(h)
-    lo30   = min(lo[-30:]) if len(lo) >= 30  else min(lo)
-    hi60   = max(h[-60:])  if len(h) >= 60  else max(h)
-    lo60   = min(lo[-60:]) if len(lo) >= 60  else min(lo)
-    v30    = sum(v[-30:]) / 30 if len(v) >= 30 else None
-    v63    = sum(v[-63:]) / 63 if len(v) >= 63 else None
-    r3m    = pct_chg(c, 63)
-
-    tt = [False]*8
+    c=hist["close"]; h=hist.get("high",[]); lo=hist.get("low",[]); v=hist.get("volume",[])
+    if len(c)<200: return None
+    cmp=float(ltp) if ltp else float(c[-1])
+    s50=sma(c,50); s150=sma(c,150); s200=sma(c,200); s200p=sma(c[:-30],200) if len(c)>=230 else None
+    hi52=max(h[-252:]) if len(h)>=252 else (max(h) if h else cmp)
+    lo52=min(lo[-252:]) if len(lo)>=252 else (min(lo) if lo else cmp)
+    hi30=max(h[-30:]) if len(h)>=30 else (max(h) if h else cmp)
+    lo30=min(lo[-30:]) if len(lo)>=30 else (min(lo) if lo else cmp)
+    hi60=max(h[-60:]) if len(h)>=60 else (max(h) if h else cmp)
+    lo60=min(lo[-60:]) if len(lo)>=60 else (min(lo) if lo else cmp)
+    v30=sum(v[-30:])/30 if len(v)>=30 else None
+    v63=sum(v[-63:])/63 if len(v)>=63 else None
+    r3m=pct(c,63)
+    tt=[False]*8
     if s200:
-        tt[0] = cmp > s200
-        tt[1] = (s200 > s200p) if s200p else False
-        if s150: tt[2] = s150 > s200
-        if s50 and s150: tt[3] = s50 > s150 and s50 > s200
-        if s50:  tt[4] = cmp > s50
-        tt[5] = cmp >= lo52 * 1.25
-        tt[6] = cmp >= hi52 * 0.75
-        tt[7] = (r3m or 0) > 5
+        tt[0]=cmp>s200; tt[1]=(s200>s200p) if s200p else False
+        if s150: tt[2]=s150>s200
+        if s50 and s150: tt[3]=s50>s150 and s50>s200
+        if s50: tt[4]=cmp>s50
+        if lo52: tt[5]=cmp>=lo52*1.25
+        if hi52: tt[6]=cmp>=hi52*0.75
+        tt[7]=(r3m or 0)>5
+    if not tt[0]: return None
+    tts=sum(tt)
+    rng30=((hi30-lo30)/lo30*100) if lo30 else None
+    rng60=((hi60-lo60)/lo60*100) if lo60 else None
+    r30f=rng30 is not None and rng30<10
+    r60f=rng60 is not None and rng60<20
+    vcp=r30f and r60f
+    rs_f=(r3m or 0)-5
+    vq=(v30/v63*100) if (v30 and v63) else None
+    d200=((cmp-s200)/s200*100) if s200 else None
+    trisk=((cmp-lo30)/cmp*100) if lo30 else 7
+    sc=0; sc+=(tts/8)*35; sc+=22 if rs_f>0 else 0
+    sc+=min(vq or 0,100)/100*18
+    if r30f: sc+=7
+    if r60f: sc+=7
+    sc=min(round(sc),100)
+    rs_pos=rs_f>0
+    if tts>=8 and rs_pos and sc>=78: grade="A+"
+    elif tts>=7 and rs_pos and sc>=62: grade="A"
+    elif tts>=6 and sc>=46: grade="B+"
+    else: grade="B"
+    ri=CAPITAL*RISK_PCT*0.75; rps=cmp*trisk/100
+    shares=int(ri/rps) if rps>0 else 0
+    entry=round(cmp*1.005,2); stop_p=round(lo30,2) if lo30 else round(cmp*0.93,2)
+    t1=round(entry+2*(entry-stop_p),2); t2=round(entry+3*(entry-stop_p),2)
+    return {"sym":sym,"sid":str(sid),"cmp":round(cmp,2),"tts":tts,"tt":tt,"grade":grade,"score":sc,
+            "s50":round(s50 or 0,2),"s150":round(s150 or 0,2),"s200":round(s200 or 0,2),
+            "hi52":round(hi52,2),"lo52":round(lo52,2),"rs":round(rs_f,2),"r3m":round(r3m or 0,2),
+            "vq":round(vq or 0,1),"rng30":round(rng30 or 0,1),"rng60":round(rng60 or 0,1),
+            "r30f":r30f,"r60f":r60f,"vcp":vcp,"d200":round(d200 or 0,1),"trisk":round(trisk,1),
+            "entry":entry,"stop":stop_p,"t1":t1,"t2":t2,"shares":shares,"posval":round(shares*cmp)}
 
-    if not tt[0]: return None  # Hard reject
+def market_direction(nh, vix=None):
+    if not nh or "close" not in nh or len(nh["close"])<200:
+        return {"regime":"UNKNOWN","exposure":75,"cmp":0,"s50":0,"s150":0,"s200":0,"r1m":0,"r3m":0,"vix":vix,"signals":["Nifty data unavailable"]}
+    c=nh["close"]; cmp=c[-1]; s50=sma(c,50); s150=sma(c,150); s200=sma(c,200)
+    r1m=pct(c,21); r3m=pct(c,63)
+    if s200 and cmp>s200 and s50 and cmp>s50:
+        regime="BULL-CAUTION" if (vix or 0)>22 else "BULL"; exposure=75 if (vix or 0)>22 else 100
+    elif s200 and cmp>s200: regime="BULL-WEAK"; exposure=75
+    elif s150 and cmp>s150: regime="TRANSITION"; exposure=50
+    else: regime="BEAR"; exposure=25
+    if (vix or 0)>30: exposure=min(exposure,25)
+    elif (vix or 0)>22: exposure=min(exposure,50)
+    sigs=[]
+    sigs.append("Price > 50 SMA ✅" if (s50 and cmp>s50) else "Price < 50 SMA ⚠")
+    sigs.append("Price > 200 SMA ✅" if (s200 and cmp>s200) else "Price < 200 SMA ❌")
+    if r3m: sigs.append(f"Nifty 3M: {r3m:+.1f}%")
+    if vix: sigs.append(f"VIX: {vix:.1f}")
+    return {"regime":regime,"exposure":exposure,"cmp":round(cmp,2),"s50":round(s50 or 0,2),
+            "s150":round(s150 or 0,2),"s200":round(s200 or 0,2),"r1m":round(r1m or 0,2),
+            "r3m":round(r3m or 0,2),"vix":vix,"signals":sigs}
 
-    tts    = sum(tt)
-    rng30  = (hi30 - lo30) / lo30 * 100 if lo30 else None
-    rng60  = (hi60 - lo60) / lo60 * 100 if lo60 else None
-    r30f   = rng30 is not None and rng30 < 10
-    r60f   = rng60 is not None and rng60 < 20
-    vcp    = r30f and r60f
-    rs_f   = ((r3m or 0) - 5)
-    vq     = (v30 / v63 * 100) if (v30 and v63) else None
-    d200   = ((cmp - s200) / s200 * 100) if s200 else None
-    trisk  = ((cmp - lo30) / cmp * 100) if lo30 else None
-
-    sc = 0
-    sc += (tts / 8) * 35
-    sc += 22 if rs_f > 0 else 0
-    sc += min(vq or 0, 100) / 100 * 18
-    if r30f: sc += 7
-    if r60f: sc += 7
-    sc = min(round(sc), 100)
-
-    rs_pos = rs_f > 0
-    if tts >= 8 and rs_pos and sc >= 78:  grade = "A+"
-    elif tts >= 7 and rs_pos and sc >= 62: grade = "A"
-    elif tts >= 6 and sc >= 46:            grade = "B+"
-    else:                                   grade = "B"
-
-    risk_inr = CAPITAL * RISK_PCT * 0.75
-    rps      = cmp * (trisk or 7) / 100
-    shares   = int(risk_inr / rps) if rps > 0 else 0
-    entry    = round(cmp * 1.005, 2)
-    stop_p   = round(lo30, 2) if lo30 else round(cmp * 0.93, 2)
-    t1       = round(entry + 2 * (entry - stop_p), 2)
-    t2       = round(entry + 3 * (entry - stop_p), 2)
-
-    return {
-        "sym": sym, "cmp": round(cmp, 2), "tts": tts, "tt": tt,
-        "grade": grade, "score": sc, "s50": s50, "s150": s150, "s200": s200,
-        "hi52": hi52, "lo52": lo52, "rs": round(rs_f, 2), "r3m": round(r3m or 0, 2),
-        "vq": round(vq or 0, 1), "rng30": round(rng30 or 0, 1), "rng60": round(rng60 or 0, 1),
-        "r30f": r30f, "r60f": r60f, "vcp": vcp, "d200": round(d200 or 0, 1),
-        "trisk": round(trisk or 0, 1), "entry": entry, "stop": stop_p,
-        "t1": t1, "t2": t2, "shares": shares, "posval": round(shares * cmp),
-    }
-
-# ── MARKET DIRECTION ─────────────────────────────────────
-def market_direction(nifty_hist, vix_val=None):
-    if not nifty_hist or "close" not in nifty_hist:
-        return {"regime": "UNKNOWN", "exposure": 75, "signal": "No index data"}
-    c    = nifty_hist["close"]
-    if len(c) < 200:
-        return {"regime": "INSUFFICIENT DATA", "exposure": 75, "signal": "Need more data"}
-
-    cmp  = c[-1]
-    s50  = sma(c, 50)
-    s150 = sma(c, 150)
-    s200 = sma(c, 200)
-    r1m  = pct_chg(c, 21)
-    r3m  = pct_chg(c, 63)
-
-    # Count stocks above 200 SMA (breadth) — approximated from index position
-    breadth_ok = cmp > s200 if s200 else False
-
-    if s200 and cmp > s200 and s50 and cmp > s50:
-        if (vix_val or 0) > 25:
-            regime = "BULL-CAUTION"; exposure = 75
-        else:
-            regime = "BULL"; exposure = 100
-    elif s200 and cmp > s200:
-        regime = "BULL-WEAK"; exposure = 75
-    elif s150 and cmp > s150:
-        regime = "TRANSITION"; exposure = 50
-    else:
-        regime = "BEAR"; exposure = 25
-
-    # VIX overlay
-    if vix_val:
-        if vix_val > 30:   exposure = min(exposure, 25)
-        elif vix_val > 22: exposure = min(exposure, 50)
-        elif vix_val > 17: exposure = min(exposure, 75)
-
-    signals = []
-    if s50  and cmp > s50:  signals.append("Price > 50 SMA ✅")
-    else:                    signals.append("Price < 50 SMA ⚠")
-    if s200 and cmp > s200: signals.append("Price > 200 SMA ✅")
-    else:                    signals.append("Price < 200 SMA ❌")
-    if r3m is not None:      signals.append(f"3M return: {r3m:+.1f}%")
-    if vix_val:              signals.append(f"VIX: {vix_val:.1f}")
-
-    return {
-        "regime": regime, "exposure": exposure,
-        "cmp": round(cmp, 2), "s50": round(s50 or 0, 2),
-        "s150": round(s150 or 0, 2), "s200": round(s200 or 0, 2),
-        "r1m": round(r1m or 0, 2), "r3m": round(r3m or 0, 2),
-        "vix": vix_val, "signals": signals,
-    }
-
-# ── SECTOR ROTATION ───────────────────────────────────────
 def sector_rotation(idx_data):
-    sectors = []
-    for name, hist in idx_data.items():
-        if name == "INDIAVIX" or not hist or "close" not in hist: continue
-        c    = hist["close"]
-        r1m  = pct_chg(c, 21)
-        r3m  = pct_chg(c, 63)
-        r6m  = pct_chg(c, 126)
-        s200 = sma(c, 200)
-        cmp  = c[-1]
-        above200 = cmp > s200 if s200 else False
-        momentum = (r1m or 0) * 0.4 + (r3m or 0) * 0.4 + (r6m or 0) * 0.2
-        tier = "HOT" if momentum > 5 and above200 else "WARM" if momentum > 0 else "COLD"
-        sectors.append({
-            "name": name.replace("NIFTY","").replace("50","").strip(),
-            "cmp": round(cmp, 2), "r1m": round(r1m or 0, 2),
-            "r3m": round(r3m or 0, 2), "r6m": round(r6m or 0, 2),
-            "above200": above200, "momentum": round(momentum, 2), "tier": tier,
-        })
-    return sorted(sectors, key=lambda x: x["momentum"], reverse=True)
+    sectors=[]
+    for name,hist in idx_data.items():
+        if "VIX" in name or not hist or "close" not in hist: continue
+        c=hist["close"]; r1m=pct(c,21); r3m=pct(c,63); r6m=pct(c,126)
+        s200=sma(c,200); cmp=c[-1]; ab200=cmp>s200 if s200 else False
+        mom=(r1m or 0)*0.4+(r3m or 0)*0.4+(r6m or 0)*0.2
+        tier="HOT" if mom>5 and ab200 else "WARM" if mom>0 else "COLD"
+        sectors.append({"name":name.replace("NIFTY","").strip() or name,
+                        "r1m":round(r1m or 0,2),"r3m":round(r3m or 0,2),"tier":tier,"momentum":round(mom,2)})
+    return sorted(sectors,key=lambda x:x["momentum"],reverse=True)
 
-# ── HTML GENERATOR ────────────────────────────────────────
-def build_html(results, mkt, sectors, scan_time, total):
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
-    tt7  = sum(1 for r in results if r["tts"] >= 7)
-    vcp  = sum(1 for r in results if r["vcp"])
-    ap   = sum(1 for r in results if r["grade"] == "A+")
-
-    regime_color = {
-        "BULL": "#22c55e", "BULL-WEAK": "#86efac",
-        "BULL-CAUTION": "#f59e0b", "TRANSITION": "#fb923c",
-        "BEAR": "#ef4444", "UNKNOWN": "#64748b"
-    }.get(mkt.get("regime", "UNKNOWN"), "#64748b")
-
-    sector_html = ""
+def build_html(results,mkt,sectors,scan_time,total,found):
+    results=sorted(results,key=lambda x:x["score"],reverse=True)
+    tt7=sum(1 for r in results if r["tts"]>=7)
+    vcp_c=sum(1 for r in results if r["vcp"])
+    ap=sum(1 for r in results if r["grade"]=="A+")
+    a_c=sum(1 for r in results if r["grade"]=="A")
+    rc={"BULL":"#22c55e","BULL-WEAK":"#86efac","BULL-CAUTION":"#f59e0b","TRANSITION":"#fb923c","BEAR":"#ef4444","UNKNOWN":"#64748b"}
+    regc=rc.get(mkt.get("regime","UNKNOWN"),"#64748b")
+    sh=""
     for s in sectors[:9]:
-        col = "#22c55e" if s["tier"]=="HOT" else "#f59e0b" if s["tier"]=="WARM" else "#64748b"
-        bg  = "rgba(34,197,94,.12)" if s["tier"]=="HOT" else "rgba(245,158,11,.1)" if s["tier"]=="WARM" else "rgba(100,116,139,.1)"
-        sector_html += f"""<div style="background:{bg};border:1px solid {col}33;border-radius:8px;padding:12px 14px">
-          <div style="font-size:11px;color:{col};font-weight:600;letter-spacing:.05em">{s['tier']}</div>
-          <div style="font-size:14px;font-weight:600;margin:4px 0">{s['name']}</div>
-          <div style="font-family:monospace;font-size:11px;color:#94a3b8">1M: {s['r1m']:+.1f}% · 3M: {s['r3m']:+.1f}%</div>
-        </div>"""
-
-    rows = ""
-    for i, s in enumerate(results):
-        rk   = i + 1
-        dots = "".join(f'<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:{"#22c55e" if s["tt"][d] else "#1e293b"};margin-right:2px"></span>' for d in range(8))
-        sc   = s["score"]
-        sc_c = "#22c55e" if sc>=75 else "#f59e0b" if sc>=50 else "#64748b"
-        gr_c = {"A+":"#4ade80","A":"#22c55e","B+":"#f59e0b","B":"#64748b"}.get(s["grade"],"#64748b")
-        gr_bg= {"A+":"rgba(34,197,94,.2)","A":"rgba(34,197,94,.12)","B+":"rgba(245,158,11,.15)","B":"rgba(100,116,139,.1)"}.get(s["grade"],"rgba(100,116,139,.1)")
-        r3c  = "#22c55e" if s["r3m"]>0 else "#ef4444"
-        rsc  = "#22c55e" if s["rs"]>0 else "#ef4444"
-        d2c  = "#22d3ee" if s["d200"]>0 else "#94a3b8"
-        vcp_h= '<span style="background:rgba(34,197,94,.15);color:#22c55e;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:700;border:1px solid rgba(34,197,94,.3)">VCP</span>' if s["vcp"] else "—"
-        rows += f"""<tr style="border-bottom:1px solid rgba(255,255,255,.06)">
-          <td style="padding:8px 10px;font-family:monospace;color:#64748b;font-size:11px">{rk}</td>
-          <td style="padding:8px 10px;font-weight:700;font-size:13px">{s['sym']}</td>
-          <td style="padding:8px 10px;font-family:monospace">₹{s['cmp']:,.1f}</td>
-          <td style="padding:8px 10px">{dots}<div style="font-family:monospace;font-size:9px;color:#64748b;margin-top:2px">{s['tts']}/8</div></td>
-          <td style="padding:8px 10px"><span style="background:rgba(255,255,255,.06);color:{sc_c};padding:2px 8px;border-radius:3px;font-family:monospace;font-weight:600">{sc}</span></td>
-          <td style="padding:8px 10px"><span style="background:{gr_bg};color:{gr_c};padding:3px 9px;border-radius:4px;font-size:11px;font-weight:700">{s['grade']}</span></td>
-          <td style="padding:8px 10px;font-family:monospace;color:{rsc}">{s['rs']:+.2f}</td>
-          <td style="padding:8px 10px;font-family:monospace;color:{r3c}">{s['r3m']:+.1f}%</td>
-          <td style="padding:8px 10px;font-family:monospace">{s['vq']:.0f}%</td>
-          <td style="padding:8px 10px">{vcp_h}</td>
-          <td style="padding:8px 10px;font-family:monospace;color:#94a3b8">{s['trisk']:.1f}%</td>
-          <td style="padding:8px 10px;font-family:monospace;color:{d2c}">{s['d200']:+.1f}%</td>
-          <td style="padding:8px 10px;font-family:monospace;color:#22c55e">₹{s['entry']:,.2f}</td>
-          <td style="padding:8px 10px;font-family:monospace;color:#ef4444">₹{s['stop']:,.2f}</td>
-          <td style="padding:8px 10px;font-family:monospace;color:#f59e0b">₹{s['t1']:,.2f}</td>
-          <td style="padding:8px 10px;font-family:monospace;font-size:11px">₹{s['posval']:,.0f}</td>
-        </tr>"""
-
-    signals_html = "".join(f'<div style="font-size:11px;color:#94a3b8;margin-bottom:3px">{sg}</div>' for sg in mkt.get("signals", []))
-    eff_capital  = round(CAPITAL * mkt.get("exposure", 75) / 100 / 100000, 1)
-
-    # Pre-compute stats to avoid nested f-string issues
-    a_count   = sum(1 for r in results if r['grade'] == 'A')
-    stats_items = [
-        (total,       "Scanned",   "#e2e8f0"),
-        (len(results),"Qualified", "#e2e8f0"),
-        (tt7,         "TT 7-8",    "#22c55e"),
-        (vcp,         "VCP",       "#f59e0b"),
-        (ap,          "A+ Grade",  "#a78bfa"),
-        (a_count,     "A Grade",   "#3b82f6"),
-    ]
-    stats_html = "".join(
-        f'<div style="padding:12px 16px;border-right:1px solid rgba(255,255,255,.07)">'
-        f'<div style="font-family:monospace;font-size:20px;font-weight:600;color:{c}">{v}</div>'
-        f'<div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">{l}</div>'
-        f'</div>'
-        for v, l, c in stats_items
-    )
-
-    # Pre-compute colour variables for mkt returns
-    r1m_val   = mkt.get('r1m', 0) or 0
-    r3m_val   = mkt.get('r3m', 0) or 0
-    vix_val2  = mkt.get('vix') or 0
-    r1m_col   = '#22c55e' if r1m_val > 0 else '#ef4444'
-    r3m_col   = '#22c55e' if r3m_val > 0 else '#ef4444'
-    vix_col   = '#ef4444' if vix_val2 > 20 else '#22c55e'
-    vix_disp  = str(mkt.get('vix')) if mkt.get('vix') else '—'
-
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gaurav's Trading Dashboard — {scan_time}</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#0a0e1a;color:#e2e8f0;font-family:'IBM Plex Sans',sans-serif;font-size:13px}}
-.tw{{overflow-x:auto}} table{{width:100%;border-collapse:collapse}}
-th{{background:#0f1525;color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.07em;padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;position:sticky;top:0;z-index:5}}
-tr:hover td{{background:rgba(255,255,255,.03)}}
-</style></head><body>
-
-<div style="background:#0f1525;border-bottom:1px solid rgba(255,255,255,.07);padding:16px 24px;display:flex;justify-content:space-between;align-items:center">
-  <div style="display:flex;align-items:center;gap:14px">
-    <div style="width:38px;height:38px;border-radius:9px;background:rgba(34,197,94,.12);border:1px solid #22c55e;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:13px;color:#22c55e;font-weight:600">GT</div>
-    <div>
-      <div style="font-size:16px;font-weight:600">Gaurav's Trading System</div>
-      <div style="font-size:10px;color:#64748b;font-family:monospace;margin-top:2px;letter-spacing:.04em">NIFTY 500 · MINERVINI SEPA · DHAN API · {scan_time}</div>
-    </div>
-  </div>
-  <div style="font-family:monospace;font-size:11px;color:#64748b">Capital ₹{CAPITAL//100000}L · Risk 1%</div>
-</div>
-
-<!-- MARKET DIRECTION -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)">
-  <div style="background:#0a0e1a;padding:20px 24px">
-    <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Market regime</div>
-    <div style="font-size:28px;font-weight:700;color:{regime_color};margin-bottom:6px">{mkt.get('regime','—')}</div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-      <span style="font-size:12px;color:#94a3b8">Deploy capital:</span>
-      <span style="font-size:18px;font-weight:700;color:{regime_color}">{mkt.get('exposure',75)}%</span>
-      <span style="font-size:12px;color:#64748b">= ₹{eff_capital}L active</span>
-    </div>
-    {signals_html}
-  </div>
-  <div style="background:#0a0e1a;padding:20px 24px">
-    <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Nifty 50 levels</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-      <div><div style="font-size:10px;color:#64748b">CMP</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">{mkt.get('cmp','—')}</div></div>
-      <div><div style="font-size:10px;color:#64748b">50 SMA</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">{mkt.get('s50','—')}</div></div>
-      <div><div style="font-size:10px;color:#64748b">200 SMA</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px">{mkt.get('s200','—')}</div></div>
-      <div><div style="font-size:10px;color:#64748b">1M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{r1m_col}">{r1m_val:+.1f}%</div></div>
-      <div><div style="font-size:10px;color:#64748b">3M Return</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{r3m_col}">{r3m_val:+.1f}%</div></div>
-      <div><div style="font-size:10px;color:#64748b">VIX</div><div style="font-family:monospace;font-size:15px;font-weight:600;margin-top:3px;color:{vix_col}">{vix_disp}</div></div>
-    </div>
-  </div>
-</div>
-
-<!-- STATS -->
-<div style="display:grid;grid-template-columns:repeat(6,1fr);border-bottom:1px solid rgba(255,255,255,.07)">
-  {stats_html}
-</div>
-
-<!-- SECTOR ROTATION -->
-<div style="padding:16px 24px;border-bottom:1px solid rgba(255,255,255,.07)">
-  <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px">Sectoral rotation</div>
-  <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:8px">{sector_html}</div>
-</div>
-
-<!-- TABLE -->
-<div class="tw">
-<table>
-  <thead><tr>
-    <th>#</th><th>Symbol</th><th>CMP</th><th>TT Score</th><th>Scan Score</th>
-    <th>Grade</th><th>RS Filter</th><th>3M Ret</th><th>Vol Qual</th><th>VCP</th>
-    <th>Trade Risk</th><th>Dist 200</th><th>Entry</th><th>Stop</th><th>T1 (2R)</th><th>Pos Size</th>
-  </tr></thead>
-  <tbody>{rows}</tbody>
-</table>
-</div>
-
-<div style="padding:10px 24px;border-top:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between;font-size:10px;color:#64748b;font-family:monospace;background:#0f1525">
-  <span>Source: Dhan API · NSE_EQ · Daily EOD · Minervini SEPA · VIX-adjusted exposure</span>
-  <span>Not financial advice · Auto-generated {scan_time}</span>
-</div>
+        col="#22c55e" if s["tier"]=="HOT" else "#f59e0b" if s["tier"]=="WARM" else "#64748b"
+        bg="rgba(34,197,94,.12)" if s["tier"]=="HOT" else "rgba(245,158,11,.1)" if s["tier"]=="WARM" else "rgba(100,116,139,.1)"
+        sh+=f'<div style="background:{bg};border:1px solid {col}33;border-radius:8px;padding:10px 12px"><div style="font-size:10px;color:{col};font-weight:700">{s["tier"]}</div><div style="font-size:13px;font-weight:600;margin:3px 0">{s["name"]}</div><div style="font-family:monospace;font-size:10px;color:#94a3b8">1M:{s["r1m"]:+.1f}% 3M:{s["r3m"]:+.1f}%</div></div>'
+    rows=""
+    for i,s in enumerate(results):
+        rk=i+1
+        rnc="color:#f59e0b" if rk==1 else ("color:#94a3b8" if rk<=3 else "color:#a78bfa" if rk<=5 else "color:#64748b")
+        dots="".join(f'<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:{"#22c55e" if s["tt"][d] else "#1e293b"};margin-right:2px"></span>' for d in range(8))
+        sc=s["score"]; scc="#22c55e" if sc>=75 else "#f59e0b" if sc>=50 else "#64748b"
+        grc={"A+":"#4ade80","A":"#22c55e","B+":"#f59e0b","B":"#64748b"}.get(s["grade"],"#64748b")
+        grb={"A+":"rgba(34,197,94,.2)","A":"rgba(34,197,94,.12)","B+":"rgba(245,158,11,.15)","B":"rgba(100,116,139,.1)"}.get(s["grade"],"rgba(100,116,139,.1)")
+        r3c="#22c55e" if s["r3m"]>0 else "#ef4444"
+        rsc="#22c55e" if s["rs"]>0 else "#ef4444"
+        d2c="#22d3ee" if s["d200"]>0 else "#94a3b8"
+        vcp='<span style="background:rgba(34,197,94,.15);color:#22c55e;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:700;border:1px solid rgba(34,197,94,.3)">VCP</span>' if s["vcp"] else "—"
+        rows+=f'<tr style="border-bottom:1px solid rgba(255,255,255,.05)"><td style="padding:7px 8px;font-family:monospace;font-size:10px;{rnc}">{rk}</td><td style="padding:7px 8px;font-weight:700;font-size:12px">{s["sym"]}</td><td style="padding:7px 8px;font-family:monospace;font-size:11px">₹{s["cmp"]:,.1f}</td><td style="padding:7px 8px">{dots}<div style="font-family:monospace;font-size:9px;color:#64748b">{s["tts"]}/8</div></td><td style="padding:7px 8px;font-family:monospace;font-weight:600;color:{scc}">{sc}</td><td style="padding:7px 8px"><span style="background:{grb};color:{grc};padding:2px 8px;border-radius:3px;font-size:10px;font-weight:700">{s["grade"]}</span></td><td style="padding:7px 8px;font-family:monospace;font-size:11px;color:{rsc}">{s["rs"]:+.2f}</td><td style="padding:7px 8px;font-family:monospace;font-size:11px;color:{r3c}">{s["r3m"]:+.1f}%</td><td style="padding:7px 8px;font-family:monospace;font-size:11px">{s["vq"]:.0f}%</td><td style="padding:7px 8px">{vcp}</td><td style="padding:7px 8px;font-family:monospace;font-size:11px;color:#94a3b8">{s["trisk"]:.1f}%</td><td style="padding:7px 8px;font-family:monospace;font-size:11px;color:{d2c}">{s["d200"]:+.1f}%</td><td style="padding:7px 8px;font-family:monospace;font-size:11px;color:#22c55e">₹{s["entry"]:,.2f}</td><td style="padding:7px 8px;font-family:monospace;font-size:11px;color:#ef4444">₹{s["stop"]:,.2f}</td><td style="padding:7px 8px;font-family:monospace;font-size:11px;color:#f59e0b">₹{s["t1"]:,.2f}</td><td style="padding:7px 8px;font-family:monospace;font-size:10px">₹{s["posval"]:,.0f}</td></tr>'
+    sigs="".join(f'<div style="font-size:11px;color:#94a3b8;margin-bottom:3px">{sg}</div>' for sg in mkt.get("signals",[]))
+    eff=round(CAPITAL*mkt.get("exposure",75)/100/100000,1)
+    r1m=mkt.get("r1m",0) or 0; r3m=mkt.get("r3m",0) or 0; vx=mkt.get("vix") or 0
+    r1c="#22c55e" if r1m>0 else "#ef4444"; r3c2="#22c55e" if r3m>0 else "#ef4444"
+    vxc="#ef4444" if vx>20 else "#22c55e"; vxd=f"{vx:.1f}" if vx else "—"
+    stats_items=[(total,"Scanned","#e2e8f0"),(found,"IDs found","#94a3b8"),(len(results),"Qualified","#e2e8f0"),(tt7,"TT 7-8","#22c55e"),(vcp_c,"VCP","#f59e0b"),(ap,"A+ Grade","#a78bfa"),(a_c,"A Grade","#3b82f6")]
+    sthtml="".join(f'<div style="padding:12px 14px;border-right:1px solid rgba(255,255,255,.07)"><div style="font-family:monospace;font-size:19px;font-weight:600;color:{c}">{v}</div><div style="font-size:9px;color:#64748b;margin-top:2px;text-transform:uppercase;letter-spacing:.05em">{l}</div></div>' for v,l,c in stats_items)
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gaurav's Trading Dashboard — {scan_time}</title>
+<style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');*{{box-sizing:border-box;margin:0;padding:0}}body{{background:#0a0e1a;color:#e2e8f0;font-family:'IBM Plex Sans',sans-serif;font-size:13px}}.tw{{overflow-x:auto}}table{{width:100%;border-collapse:collapse;font-size:11px}}th{{background:#0f1525;color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.07em;padding:8px 8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;position:sticky;top:0;z-index:5}}tr:hover td{{background:rgba(255,255,255,.03)}}</style></head><body>
+<div style="background:#0f1525;border-bottom:1px solid rgba(255,255,255,.07);padding:14px 20px;display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:12px"><div style="width:36px;height:36px;border-radius:8px;background:rgba(34,197,94,.12);border:1px solid #22c55e;display:flex;align-items:center;justify-content:center;font-family:monospace;font-size:12px;color:#22c55e;font-weight:700">GT</div><div><div style="font-size:15px;font-weight:600">Gaurav's Trading System</div><div style="font-size:9px;color:#64748b;font-family:monospace;margin-top:2px">NIFTY 500 · MINERVINI SEPA · DHAN API · {scan_time}</div></div></div><div style="font-family:monospace;font-size:10px;color:#64748b">₹{CAPITAL//100000}L Capital · 1% Risk · Auto-updated 4:30 PM IST</div></div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><div style="background:#0a0e1a;padding:18px 20px"><div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px">Market regime</div><div style="font-size:26px;font-weight:700;color:{regc};margin-bottom:4px">{mkt.get("regime","—")}</div><div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="font-size:11px;color:#94a3b8">Deploy:</span><span style="font-size:16px;font-weight:700;color:{regc}">{mkt.get("exposure",75)}%</span><span style="font-size:11px;color:#64748b">= ₹{eff}L active</span></div>{sigs}</div><div style="background:#0a0e1a;padding:18px 20px"><div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Nifty 50 levels</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px"><div><div style="font-size:9px;color:#64748b">CMP</div><div style="font-family:monospace;font-size:14px;font-weight:600;margin-top:2px">{mkt.get("cmp","—")}</div></div><div><div style="font-size:9px;color:#64748b">50 SMA</div><div style="font-family:monospace;font-size:14px;font-weight:600;margin-top:2px">{mkt.get("s50","—")}</div></div><div><div style="font-size:9px;color:#64748b">200 SMA</div><div style="font-family:monospace;font-size:14px;font-weight:600;margin-top:2px">{mkt.get("s200","—")}</div></div><div><div style="font-size:9px;color:#64748b">1M Ret</div><div style="font-family:monospace;font-size:14px;font-weight:600;margin-top:2px;color:{r1c}">{r1m:+.1f}%</div></div><div><div style="font-size:9px;color:#64748b">3M Ret</div><div style="font-family:monospace;font-size:14px;font-weight:600;margin-top:2px;color:{r3c2}">{r3m:+.1f}%</div></div><div><div style="font-size:9px;color:#64748b">VIX</div><div style="font-family:monospace;font-size:14px;font-weight:600;margin-top:2px;color:{vxc}">{vxd}</div></div></div></div></div>
+<div style="display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid rgba(255,255,255,.07)">{sthtml}</div>
+<div style="padding:14px 20px;border-bottom:1px solid rgba(255,255,255,.07)"><div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px">Sectoral rotation</div><div style="display:grid;grid-template-columns:repeat(9,1fr);gap:6px">{sh}</div></div>
+<div class="tw"><table><thead><tr><th>#</th><th>Symbol</th><th>CMP</th><th>TT Score</th><th>Score</th><th>Grade</th><th>RS Filter</th><th>3M Ret</th><th>Vol Qual</th><th>VCP</th><th>Trade Risk</th><th>Dist 200</th><th>Entry</th><th>Stop</th><th>T1 (2R)</th><th>Pos Size</th></tr></thead><tbody>{rows}</tbody></table></div>
+<div style="padding:8px 20px;border-top:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between;font-size:9px;color:#64748b;font-family:monospace;background:#0f1525"><span>Dhan API · NSE EOD · Minervini SEPA · VIX-adjusted · Auto-generated daily</span><span>Not financial advice · {scan_time}</span></div>
 </body></html>"""
 
-# ── MAIN ─────────────────────────────────────────────────
 def main():
     print("="*60)
-    print("  GAURAV'S TRADING SYSTEM — AUTO SCAN")
+    print("  GAURAV'S TRADING SYSTEM v3")
     print(f"  {datetime.datetime.now().strftime('%Y-%m-%d %H:%M IST')}")
     print("="*60)
-
     if not ACCESS_TOKEN:
-        print("❌ DHAN_ACCESS_TOKEN not set in GitHub Secrets")
-        sys.exit(1)
+        print("ERROR: DHAN_ACCESS_TOKEN not set"); sys.exit(1)
 
-    # 1. Fetch index data
-    print("\n[1/3] Fetching index & VIX data...")
+    print("\n[0/3] Auto-fetching security IDs from Dhan master...")
+    id_map = get_security_ids(NIFTY500_SYMBOLS)
+
+    print("\n[1/3] Fetching index data...")
+    idx_id_map = get_index_ids()
+    print(f"  Index master keys: {list(idx_id_map.keys())[:8]}")
+
+    nifty_sid = (idx_id_map.get("NIFTY 50") or idx_id_map.get("NIFTY50") or "13")
+    print(f"  Nifty 50 SID: {nifty_sid}")
+    nh = dhan_hist(nifty_sid, seg="IDX_I", days=300, instrument="INDEX")
+    if not nh: nh = dhan_hist(nifty_sid, seg="NSE_EQ", days=300, instrument="EQUITY")
+    print(f"  Nifty 50: {'OK ' + str(len(nh.get('close',[]))) + ' candles' if nh else 'FAILED'}")
+
+    vix_sid = idx_id_map.get("INDIA VIX") or idx_id_map.get("INDIAVIX") or "50"
+    vh = dhan_hist(vix_sid, seg="IDX_I", days=30, instrument="INDEX")
+    vix_val = vh["close"][-1] if vh and "close" in vh else None
+    print(f"  VIX: {vix_val}")
+
     idx_hist = {}
-    for name, info in INDICES.items():
-        hist = dhan_historical(info["id"], seg=info["seg"], days=300)
-        idx_hist[name] = hist
-        print(f"  {name}: {'OK' if hist else 'FAILED'}")
-        time.sleep(0.3)
+    for sname in ["BANKNIFTY","NIFTY BANK","NIFTYIT","NIFTY IT","NIFTYPHARMA","NIFTY PHARMA",
+                  "NIFTYAUTO","NIFTY AUTO","NIFTYFMCG","NIFTY FMCG","NIFTYMETAL","NIFTY METAL",
+                  "NIFTYREALTY","NIFTY REALTY"]:
+        sid2 = idx_id_map.get(sname)
+        if sid2:
+            h2 = dhan_hist(sid2, seg="IDX_I", days=300, instrument="INDEX")
+            if h2:
+                clean_name = sname.replace("NIFTY ","NIFTY").replace(" ","")
+                idx_hist[clean_name] = h2
+                print(f"  {clean_name}: OK")
+            time.sleep(0.3)
 
-    nifty_hist = idx_hist.get("NIFTY50")
-    vix_hist   = idx_hist.get("INDIAVIX")
-    vix_val    = vix_hist["close"][-1] if vix_hist and "close" in vix_hist else None
-    mkt        = market_direction(nifty_hist, vix_val)
-    sectors    = sector_rotation(idx_hist)
+    mkt = market_direction(nh, vix_val)
+    sectors = sector_rotation(idx_hist)
+    print(f"  Regime: {mkt['regime']} | Exposure: {mkt['exposure']}%")
 
-    print(f"\n  Market: {mkt['regime']} | Exposure: {mkt['exposure']}% | VIX: {vix_val}")
+    print(f"\n[2/3] Fetching live prices for {len(id_map)} stocks...")
+    ltp_raw = dhan_ltp(list(id_map.values()))
+    ltp_by_sid = {str(k): v for k, v in ltp_raw.items()}
+    print(f"  Got LTP for {len(ltp_by_sid)} stocks")
 
-    # 2. Fetch batch LTP
-    print(f"\n[2/3] Fetching live prices for {len(STOCKS)} stocks...")
-    ltp_raw = dhan_ltp_batch(list(STOCKS.values()))
-    ltp_map = {}
-    for sid, val in ltp_raw.items():
-        ltp_map[sid] = val.get("last_price") if isinstance(val, dict) else val
-    print(f"  Got LTP for {len(ltp_map)} stocks")
-
-    # 3. Historical + analysis
-    print(f"\n[3/3] Analysing stocks (this takes ~4 mins)...")
+    print(f"\n[3/3] Analysing {len(id_map)} stocks...")
     results = []
-    for i, (sym, sid) in enumerate(STOCKS.items()):
-        ltp  = ltp_map.get(sid)
-        hist = dhan_historical(sid, days=280)
+    sym_list = list(id_map.items())
+    for i, (sym, sid) in enumerate(sym_list):
+        ltp = ltp_by_sid.get(str(sid))
+        hist = dhan_hist(str(sid), seg="NSE_EQ", days=280, instrument="EQUITY")
         if hist:
             r = analyse(sym, sid, hist, ltp)
             if r: results.append(r)
-        pct = (i+1) / len(STOCKS) * 100
-        print(f"  [{i+1:>3}/{len(STOCKS)}] {sym:<16} {pct:.0f}% | Qualified: {len(results)}", end="\r")
+        pct_done = (i+1)/len(sym_list)*100
+        print(f"  [{i+1:>3}/{len(sym_list)}] {sym:<15} {pct_done:.0f}% | OK:{len(results)}", end="\r")
         time.sleep(0.12)
-        if (i+1) % 25 == 0: time.sleep(1)
+        if (i+1) % 30 == 0: time.sleep(1)
 
     scan_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST")
-    print(f"\n\n  ✅ Done — {len(results)} stocks qualified")
-    print(f"  TT 7-8: {sum(1 for r in results if r['tts']>=7)}")
-    print(f"  A+ Grade: {sum(1 for r in results if r['grade']=='A+')}")
-    print(f"  VCP: {sum(1 for r in results if r['vcp'])}")
+    print(f"\n\n  Done — {len(results)} qualified")
+    if results:
+        top = sorted(results, key=lambda x: x["score"], reverse=True)[:5]
+        print("  TOP 5:")
+        for i,s in enumerate(top):
+            print(f"  {i+1}. {s['sym']:<15} Score:{s['score']} Grade:{s['grade']} TT:{s['tts']}/8 CMP:₹{s['cmp']}")
 
-    # 4. Generate HTML
-    html = build_html(results, mkt, sectors, scan_time, len(STOCKS))
-    out  = Path("docs/index.html")
-    out.parent.mkdir(exist_ok=True)
+    html = build_html(results, mkt, sectors, scan_time, len(NIFTY500_SYMBOLS), len(id_map))
+    out = Path("docs/index.html"); out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
-    print(f"\n  Dashboard saved → docs/index.html")
+    print(f"  Dashboard → docs/index.html")
     print("="*60)
 
 if __name__ == "__main__":
