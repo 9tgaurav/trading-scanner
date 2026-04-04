@@ -1,0 +1,35 @@
+name: Daily Market Scanner
+
+on:
+  schedule:
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run Market Scanner
+        env:
+          DHAN_CLIENT_ID:    ${{ secrets.DHAN_CLIENT_ID }}
+          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+        run: python scanner.py
+      - name: Commit and push dashboard
+        run: |
+          git config --global user.email "scanner@gaurav-trading.com"
+          git config --global user.name  "Trading Scanner Bot"
+          git add docs/index.html
+          git diff --staged --quiet || git commit -m "Dashboard update $(date +'%Y-%m-%d %H:%M IST')"
+          git push
