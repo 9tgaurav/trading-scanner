@@ -5,8 +5,8 @@ Auto-fetches correct security IDs from Dhan instrument master
 import requests, json, time, datetime, os, sys, io, csv
 from pathlib import Path
 
-CLIENT_ID    = os.environ.get("DHAN_CLIENT_ID",    "1100847090")
-ACCESS_TOKEN = os.environ.get("DHAN_ACCESS_TOKEN", "")
+CLIENT_ID    = os.environ.get("DHAN_CLIENT_ID", "1100847090").strip()
+ACCESS_TOKEN = os.environ.get("DHAN_ACCESS_TOKEN", "").strip().replace("\n","").replace("\r","")
 CAPITAL      = 5_000_000
 RISK_PCT     = 0.01
 BASE         = "https://api.dhan.co/v2"
