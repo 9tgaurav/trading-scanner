@@ -76,15 +76,37 @@ def batch_ltp(sid_list):
     result = {}
     for i in range(0, len(sid_list), 900):
         batch = sid_list[i:i+900]
+        # Dhan requires integer security IDs
+        try:
+            int_batch = [int(s) for s in batch if str(s).strip().isdigit()]
+        except:
+            int_batch = batch
+        if not int_batch:
+            continue
         try:
             r = requests.post(f"{BASE}/marketfeed/ltp", headers=hdrs(),
-                              json={"NSE_EQ": batch}, timeout=20)
+                              json={"NSE_EQ": int_batch}, timeout=30)
+            print(f"  LTP batch {i//900+1}: HTTP {r.status_code} | {len(int_batch)} sids")
             if r.status_code == 200:
-                raw = r.json().get("data",{}).get("NSE_EQ",{})
-                for k,v in raw.items():
-                    price = v.get("last_price") if isinstance(v,dict) else v
-                    if price: result[str(k)] = float(price)
-        except: pass
+                resp = r.json()
+                # Handle both response formats
+                raw = resp.get("data",{})
+                if isinstance(raw, dict):
+                    nse_data = raw.get("NSE_EQ", raw)
+                    for k,v in nse_data.items():
+                        price = v.get("last_price") if isinstance(v,dict) else v
+                        if price and float(price) > 0:
+                            result[str(k)] = float(price)
+                elif isinstance(raw, list):
+                    for item in raw:
+                        if isinstance(item, dict):
+                            sid = str(item.get("security_id",""))
+                            price = item.get("last_price", 0)
+                            if sid and price: result[sid] = float(price)
+            else:
+                print(f"  LTP error body: {r.text[:300]}")
+        except Exception as e:
+            print(f"  LTP batch error: {e}")
         time.sleep(0.3)
     return result
 
@@ -411,9 +433,15 @@ def main():
             sym=sid_to_sym.get(str(sid),"")
             if sym: liquid.append({'sym':sym,'sid':str(sid),'ltp':float(price)})
 
-    # Sort by price descending (higher price = more liquid generally), cap at MAX_STOCKS
-    liquid.sort(key=lambda x:x['ltp'],reverse=True)
-    liquid=liquid[:MAX_STOCKS]
+    # FALLBACK: if LTP returned nothing, use all master stocks with ltp=None
+    if len(liquid) == 0:
+        print("  WARNING: LTP returned 0 results — falling back to master list (will use hist close)")
+        liquid = [{'sym':s['sym'],'sid':s['sid'],'ltp':None} for s in master]
+        liquid = liquid[:MAX_STOCKS]
+    else:
+        # Sort by price descending (higher price = more liquid generally), cap at MAX_STOCKS
+        liquid.sort(key=lambda x:x['ltp'],reverse=True)
+        liquid=liquid[:MAX_STOCKS]
     print(f"  After price filter (>={MIN_PRICE}): {len(liquid)} stocks")
     print(f"  Capped at: {MAX_STOCKS} stocks for time budget")
 
