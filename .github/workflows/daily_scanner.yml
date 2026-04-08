@@ -22,12 +22,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests yfinance
+        run: pip install yfinance
 
       - name: Run Market Scanner
-        env:
-          DHAN_CLIENT_ID:    ${{ secrets.DHAN_CLIENT_ID }}
-          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
         run: python scanner.py
 
       - name: Commit and push dashboard
