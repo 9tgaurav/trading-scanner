@@ -1,12 +1,12 @@
 """
-GAURAV'S TRADING SYSTEM — MARKET SCANNER v6
+GAURAV'S TRADING SYSTEM — MARKET SCANNER v7
 - Auto-fetches ALL NSE EQ stocks from Dhan master
-- Pre-filters by price (>=50) and LTP availability before fetching history
-- Only fetches historical data for liquid stocks
-- Targets <8 min runtime — well within GitHub Actions 30 min limit
+- LTP via yfinance (no auth, no expiry, always works)
+- Historical data via Dhan API
+- Targets <15 min runtime — well within GitHub Actions 30 min limit
 """
 
-import requests, time, datetime, os, sys, io, csv
+import requests, time, datetime, os, sys, io, csv, yfinance as yf
 from pathlib import Path
 
 CLIENT_ID    = os.environ.get("DHAN_CLIENT_ID",    "").strip()
@@ -72,45 +72,52 @@ def fetch_nse_master():
         return []
 
 # ── BATCH LTP (up to 1000 per call) ──────────────────────
-def batch_ltp(sid_list):
+def batch_ltp(sid_list, sym_list):
+    """Fetch LTP via yfinance - no auth, no expiry, always works"""
+    import yfinance as yf
     result = {}
-    for i in range(0, len(sid_list), 900):
-        batch = sid_list[i:i+900]
-        # Dhan requires integer security IDs
+    # Convert NSE symbols to yfinance format: RELIANCE -> RELIANCE.NS
+    yf_symbols = []
+    sym_to_sid  = {}
+    for sid, sym in zip(sid_list, sym_list):
+        yf_sym = sym.strip().upper() + ".NS"
+        yf_symbols.append(yf_sym)
+        sym_to_sid[yf_sym] = (sid, sym)
+
+    BATCH = 200
+    for i in range(0, len(yf_symbols), BATCH):
+        batch = yf_symbols[i:i+BATCH]
         try:
-            int_batch = [int(s) for s in batch if str(s).strip().isdigit()]
-        except:
-            int_batch = batch
-        if not int_batch:
-            continue
-        try:
-            r = requests.post(f"{BASE}/marketfeed/ltp", headers=hdrs(),
-                              json={"NSE_EQ": int_batch}, timeout=30)
-            print(f"  LTP batch {i//900+1}: HTTP {r.status_code} | {len(int_batch)} sids")
-            if r.status_code == 200:
-                resp = r.json()
-                # Handle both response formats
-                raw = resp.get("data",{})
-                if isinstance(raw, dict):
-                    nse_data = raw.get("NSE_EQ", raw)
-                    for k,v in nse_data.items():
-                        price = v.get("last_price") if isinstance(v,dict) else v
-                        if price and float(price) > 0:
-                            result[str(k)] = float(price)
-                elif isinstance(raw, list):
-                    for item in raw:
-                        if isinstance(item, dict):
-                            sid = str(item.get("security_id",""))
-                            price = item.get("last_price", 0)
-                            if sid and price: result[sid] = float(price)
-            else:
-                print(f"  LTP error body: {r.text[:300]}")
+            raw = yf.download(
+                batch,
+                period="2d",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False,
+                threads=True
+            )
+            got = 0
+            for yf_sym in batch:
+                try:
+                    if len(batch) == 1:
+                        close_series = raw["Close"]
+                    else:
+                        close_series = raw[yf_sym]["Close"]
+                    price = float(close_series.dropna().iloc[-1])
+                    if price > 0:
+                        sid, sym = sym_to_sid[yf_sym]
+                        result[str(sid)] = price
+                        got += 1
+                except Exception:
+                    pass
+            print(f"  yfinance batch {i//BATCH+1}: {got}/{len(batch)} prices fetched")
         except Exception as e:
-            print(f"  LTP batch error: {e}")
-        time.sleep(0.3)
+            print(f"  yfinance batch {i//BATCH+1} error: {e}")
+        time.sleep(0.5)
+
     return result
 
-# ── HISTORICAL ────────────────────────────────────────────
 def hist(sid, seg="NSE_EQ", days=280, instrument="EQUITY"):
     to_dt = datetime.date.today()
     fr_dt = to_dt - datetime.timedelta(days=days+80)
@@ -418,9 +425,10 @@ def main():
     print(f"  Regime: {mkt['regime']} | Exposure: {mkt['exposure']}%")
 
     # ── Step 2: BATCH LTP for all stocks (liquidity pre-filter) ──
-    print(f"\n[2/3] Batch LTP for {len(master)} stocks (pre-filter)...")
+    print(f"\n[2/3] Fetching LTP via yfinance for {len(master)} stocks...")
     all_sids=[s['sid'] for s in master]
-    ltp_map=batch_ltp(all_sids)
+    all_syms=[s['sym'] for s in master]
+    ltp_map=batch_ltp(all_sids, all_syms)
     print(f"  LTP received: {len(ltp_map)}")
 
     # Build sid→symbol map
@@ -433,15 +441,9 @@ def main():
             sym=sid_to_sym.get(str(sid),"")
             if sym: liquid.append({'sym':sym,'sid':str(sid),'ltp':float(price)})
 
-    # FALLBACK: if LTP returned nothing, use all master stocks with ltp=None
-    if len(liquid) == 0:
-        print("  WARNING: LTP returned 0 results — falling back to master list (will use hist close)")
-        liquid = [{'sym':s['sym'],'sid':s['sid'],'ltp':None} for s in master]
-        liquid = liquid[:MAX_STOCKS]
-    else:
-        # Sort by price descending (higher price = more liquid generally), cap at MAX_STOCKS
-        liquid.sort(key=lambda x:x['ltp'],reverse=True)
-        liquid=liquid[:MAX_STOCKS]
+    # Sort by price descending, cap at MAX_STOCKS
+    liquid.sort(key=lambda x:x['ltp'],reverse=True)
+    liquid=liquid[:MAX_STOCKS]
     print(f"  After price filter (>={MIN_PRICE}): {len(liquid)} stocks")
     print(f"  Capped at: {MAX_STOCKS} stocks for time budget")
 
