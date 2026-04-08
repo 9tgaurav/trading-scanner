@@ -1,0 +1,89 @@
+name: Daily Market Scanner
+
+on:
+  schedule:
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Auto-generate Dhan Access Token
+        env:
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+          DHAN_API_SECRET: ${{ secrets.DHAN_API_SECRET }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, os, sys, json
+
+          client_id  = os.environ.get("DHAN_CLIENT_ID", "").strip()
+          api_secret = os.environ.get("DHAN_API_SECRET", "").strip()
+
+          print(f"Client ID: {client_id}")
+          print(f"API Secret length: {len(api_secret)}")
+
+          # Try Dhan token generation endpoints
+          endpoints = [
+              ("POST", "https://api.dhan.co/v2/generateToken",
+               {"clientId": client_id, "secret": api_secret}),
+              ("POST", "https://api.dhan.co/generateToken",
+               {"clientId": client_id, "secret": api_secret}),
+          ]
+
+          token = ""
+          for method, url, body in endpoints:
+              try:
+                  r = requests.post(url,
+                      headers={"Content-Type": "application/json"},
+                      json=body, timeout=30)
+                  print(f"  {url} → {r.status_code}: {r.text[:200]}")
+                  if r.status_code == 200:
+                      d = r.json()
+                      token = (d.get("accessToken") or d.get("access_token")
+                               or d.get("token") or d.get("jwt",""))
+                      if token:
+                          print(f"Token OK (len={len(token)})")
+                          break
+              except Exception as e:
+                  print(f"  Error: {e}")
+
+          if not token:
+              print("WARN: Could not auto-generate token — using stored fallback")
+              token = os.environ.get("DHAN_ACCESS_TOKEN_BACKUP","")
+
+          if not token:
+              print("ERROR: No token available"); sys.exit(1)
+
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"DHAN_ACCESS_TOKEN={token}\n")
+          print("Token written to env")
+          PYEOF
+
+      - name: Run Market Scanner
+        env:
+          DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+        run: python scanner.py
+
+      - name: Commit and push dashboard
+        run: |
+          git config --global user.email "scanner@gaurav-trading.com"
+          git config --global user.name  "Trading Scanner Bot"
+          git add docs/index.html
+          git diff --staged --quiet || git commit -m "Dashboard update $(date +'%Y-%m-%d %H:%M IST')"
+          git push
