@@ -1,201 +1,247 @@
 """
 GAURAV'S TRADING SYSTEM — MARKET SCANNER v8
-- 100% yfinance: LTP + Historical — ZERO Dhan dependency
-- No tokens, no expiry, runs forever automatically
-- Minervini SEPA: Trend Template + VCP + RS Filter
+- 100% yfinance: LTP + Historical data
+- Zero tokens, zero expiry, works forever
+- NSE universe: Nifty 500 constituents
+- Minervini SEPA criteria + VCP detection
 """
 
 import yfinance as yf
 import time, datetime, os, sys
 from pathlib import Path
 
-CAPITAL   = 5_000_000
-RISK_PCT  = 0.01
+CAPITAL  = 5_000_000
+RISK_PCT = 0.01
 MIN_PRICE = 50.0
+MAX_STOCKS = 500
 
-NSE_UNIVERSE = [
-    "RELIANCE","TCS","HDFCBANK","BHARTIARTL","ICICIBANK","INFOSYS","SBIN",
-    "HINDUNILVR","ITC","KOTAKBANK","LT","BAJFINANCE","HCLTECH","MARUTI",
-    "AXISBANK","ASIANPAINT","SUNPHARMA","ULTRACEMCO","TITAN","BAJAJFINSV",
-    "NESTLEIND","WIPRO","POWERGRID","NTPC","JSWSTEEL","TATAMOTORS","TECHM",
-    "INDUSINDBK","HINDALCO","CIPLA","DRREDDY","ADANIENT","ADANIPORTS",
-    "COALINDIA","BRITANNIA","GRASIM","DIVISLAB","APOLLOHOSP","HEROMOTOCO",
-    "TATASTEEL","EICHERMOT","BPCL","ONGC","TATACONSUM","SBILIFE","HDFCLIFE",
-    "BAJAJ-AUTO","SHREECEM","PIDILITIND","DABUR","BERGEPAINT","HAVELLS",
-    "VOLTAS","GODREJCP","MARICO","COLPAL","JUBLFOOD","PAGEIND","MUTHOOTFIN",
-    "CHOLAFIN","RECLTD","PFC","IRFC","TATAPOWER","GAIL","PETRONET","IOC",
-    "HINDPETRO","CANBK","BANKBARODA","PNB","UNIONBANK","FEDERALBNK",
-    "IDFCFIRSTB","BANDHANBNK","RBLBANK","AUBANK","SBICARD","ESCORTS",
-    "ASHOKLEY","TVSMOTOR","BALKRISIND","APOLLOTYRE","MRF","EXIDEIND",
-    "AMARARAJA","MOTHERSON","BOSCHLTD","SUNDRMFAST","ZYDUSLIFE","LUPIN",
-    "BIOCON","AUROPHARMA","TORNTPHARM","ALKEM","IPCA","LALPATHLAB",
-    "MAXHEALTH","FORTIS","PERSISTENT","MPHASIS","LTIM","COFORGE","OFSS",
-    "KPITTECH","TATAELXSI","DIXON","AMBER","BLUESTARCO","TRENT","RADICO",
-    "OBEROIRLTY","DLF","PRESTIGE","GODREJPROP","BRIGADE","SOBHA","LODHA",
-    "PHOENIXLTD","IRCON","NCC","KNRCON","PNCINFRA","CONCOR","GMRINFRA",
-    "IRB","LTTS","CYIENT","BSOFT","MASTEK","INFOEDGE","ZOMATO","NYKAA",
-    "DELHIVERY","NAZARA","CDSL","BSE","MCX","CAMS","KFINTECH","ICICIPRULI",
-    "HDFCAMC","NIPPONLIFE","EDELWEISS","NUVOCO","ACC","AMBUJACEM",
-    "RAMCOCEM","DALMIACEM","JKLAKSHMI","BIRLACORPN","KAJARIACER","ASTRAL",
-    "SUPREMEIND","PRINCEPIPE","VGUARD","ORIENTELEC","BAJAJELEC","AARTIIND",
-    "DEEPAKNITR","TATACHEM","VINATI","NOCIL","FINEORG","WELCORP","JSPL",
-    "NMDC","VEDL","HINDZINC","NATIONALUM","MOIL","RATNAMANI","TRIDENT",
-    "GRAPHITE","HEG","THERMAX","BHEL","SIEMENS","ABB","POLYCAB","KEI",
-    "GRINDWELL","CARBORUNIV","SUPRAJIT","UNOMINDA","ENDURANCE","MANAPPURAM",
-    "UJJIVAN","EQUITAS","CREDITACC","SPANDANA","FUSION","JMFINANCIL",
-    "CRISIL","TEAMLEASE","QUESS","CARERATING","ICRA","PCBL","SAIL",
-    "GREAVESCOT","ELGIEQUIP","KIRLOSENG","MINDA","GABRIEL","RAMKRISHNA",
-    "GPIL","PRAKASH","LAURUS","NATCOPHARM","STRIDES","GLAND","ERIS",
-    "AJANTPHARM","GRANULES","SUVEN","AFFLE","LATENTVIEW","TATACOMM","ROUTE",
-    "INDIAMART","JUSTDIAL","NAUKRI","POLICYBZR","PAYTM","MAPMYINDIA",
+# ── NSE UNIVERSE ─────────────────────────────────────────
+# Nifty 500 symbols - comprehensive liquid NSE universe
+NSE_SYMBOLS = [
+    "RELIANCE","TCS","HDFCBANK","BHARTIARTL","ICICIBANK","INFOSYS","SBIN","HINDUNILVR",
+    "ITC","LT","KOTAKBANK","AXISBANK","BAJFINANCE","MARUTI","ASIANPAINT","TITAN","SUNPHARMA",
+    "ULTRACEMCO","ONGC","NESTLEIND","WIPRO","ADANIENT","POWERGRID","NTPC","TECHM","HCLTECH",
+    "BAJAJFINSV","TATAMOTORS","COALINDIA","DIVISLAB","DRREDDY","CIPLA","EICHERMOT","INDUSINDBK",
+    "APOLLOHOSP","BPCL","TATACONSUM","GRASIM","HINDALCO","JSWSTEEL","TATASTEEL","VEDL",
+    "ADANIPORTS","ADANIGREEN","ADANIPOWER","SIEMENS","ABB","HAVELLS","VOLTAS","WHIRLPOOL",
+    "PIDILITIND","BERGEPAINT","KANSAINER","AKZOINDIA","ASTRAL","POLYCAB","CUMMINSIND",
+    "THERMAX","BHEL","BEL","HAL","COCHINSHIP","GRSE","MAZDOCK","MIDHANI",
+    "BAJAJ-AUTO","HEROMOTOCO","TVSMOTORS","M&M","TVSMOTOR","ESCORTS","ASHOKLEY",
+    "MOTHERSON","BOSCHLTD","EXIDEIND","AMARAJABAT","MINDA","SUNDRFC","GABRIEL",
+    "HDFCLIFE","SBILIFE","ICICIGI","BAJAJHLDNG","MUTHOOTFIN","CHOLAFIN","SHRIRAMFIN",
+    "MANAPPURAM","CREDITACC","UJJIVANSFB","AUBANK","FEDERALBNK","IDFCFIRSTB","BANDHANBNK",
+    "RBLBANK","YESBANK","PNB","BANKBARODA","CANBK","UNIONBANK","INDIANB","UCOBANK",
+    "MAHABANK","CENTRALBK","IOB","JKBANK","KTKBANK","DCBBANK","KARURVYSYA",
+    "HDFCAMC","NIPPONLIFE","ABCAPITAL","IIFL","360ONE","ANGELONE","MCLEODRUSSEL",
+    "ZOMATO","NYKAA","PAYTM","POLICYBZR","DELHIVERY","CARTRADE","EASEMYTRIP",
+    "INFY","WIPRO","HCLTECH","TECHM","MPHASIS","LTIMINDTREE","COFORGE","PERSISTENT",
+    "HEXAWARE","NIITTECH","KPITTECH","TATAELXSI","CYIENT","ZENSAR","RAMSARUP",
+    "SUNPHARMA","DRREDDY","CIPLA","DIVISLAB","AUROPHARMA","TORNTPHARM","ALKEM",
+    "LUPIN","BIOCON","GLENMARK","IPCA","NATCOPHARM","GRANULES","LAURUSLABS",
+    "IPCALAB","AJANTPHARM","SYNGENE","ABBINDIA","PFIZER","GLAXO","SANOFI",
+    "ASIANPAINT","BERGER","KANSAINER","NEROLAC","AKZOINDIA","INDIGO","SPICEJET",
+    "IRCTC","GMRINFRA","AIAENG","THERMAX","CUMMINSIND","GRINDWELL","SCHAEFFLER",
+    "SKF","TIMKEN","FAG","NRB","SUPRAJIT","MINDA","ENDURANCE","BALKRISIND",
+    "MRF","APOLLOTYRE","CEAT","GOODYEAR","JKTYRE","TVSSRICHAK",
+    "ACC","AMBUJACEM","ULTRACEMCO","DALMIABHA","RAMCOCEM","JKCEMENT","HEIDELBERG",
+    "SHREECEM","ORIENTCEM","MANGCITY","PRISM","BIRLATYRES",
+    "SAIL","TATASTEEL","JSWSTEEL","HINDALCO","NATIONALUM","VEDL","NMDC",
+    "MOIL","GMDC","SANDUMA","WELSPUNIND","TRIDENT","RAYMOND","VARDHMAN",
+    "PAGEIND","KALYANKJIL","TITAN","PCJEWELLER","SENCO","RAJESHEXPO",
+    "TRENT","ABFRL","SHOPERSTOP","VMART","DMART","BATA","RELAXO","METRO",
+    "JUBLFOOD","WESTLIFE","DEVYANI","SAPPHIRE","BARBEQUE","BURGERKING",
+    "MARICO","DABUR","COLPAL","GODREJCP","EMAMILTD","JYOTHYLAB","VBL",
+    "BRITANNIA","NESTLEIND","TATACONSUM","VENKEYS","KRBL","LTFOODS",
+    "GODREJAGRO","PIIND","DHANUKA","BAYER","RALLIS","SUMICHEM","INSECTICID",
+    "POWERGRID","NTPC","TATAPOWER","ADANIGREEN","CESC","TORNTPOWER","JSWENERGY",
+    "GREENKO","RPOWER","JPPOWER","INDIGRID","POWERMECH",
+    "DLF","GODREJPROP","OBEROIRLTY","PRESTIGE","BRIGADE","SOBHA","MAHLIFE",
+    "PHOENIXLTD","KOLTEPATIL","SUNTECK","PURAVANK","LODHA","MACROTECH",
+    "IRFC","RECLTD","PFC","HUDCO","NHAI","INDIGRID","PGHH","GILLETTE",
+    "HONAUT","3MINDIA","ASTRAZEN","NOVARTIS","MERCK",
+    "ZYDUSLIFE","WOCKPHARMA","STRIDES","SOLARA","LALPATHLAB","METROPOLIS",
+    "HINDPETRO","BPCL","IOC","CASTROLIND","AEGISLOG","GAIL","PETRONET",
+    "GSPL","MGL","IGL","ATGL","GUJGASLTD",
+    "NAUKRI","JUSTDIAL","MATRIMONY","AFFLE","INDIAMART","MOENGAGE",
+    "ZEEL","SUNTVTV","NETWORK18","TVTODAY","JAGRAN","DBCORP",
+    "CHOLAFIN","BAJFINANCE","BAJAJFINSV","HDFCAMC","ICICIGI","SBICARD",
+    "LTFH","POONAWALLA","APTUS","HOMEFIRST","AAVAS","CANFINHOME",
+    "LICI","GICRE","NIACL","STARHEALTH","MAXHEALTH",
+    "CONCOR","BLUEDART","GATI","MAHINDLOG","TCI","VRL","ALLCARGO",
+    "ADANIPORTS","GPPL","ESABINDIA","COCHINSHIP","SCI",
+    "WIPRO","MPHASIS","HEXAWARE","MASTEK","OFSS","INFOEDGE",
+    "TATACOMM","RAILTEL","BSNL","HFCL","STLTECH","TEJAS",
+    "DRREDDY","SUNPHARMA","BIOCON","SEQUENT","GLAND","PIRAMAL",
+    "EQUITASBNK","SURYODAY","ESAFSFB","NORTHEASTSB",
+    "FACT","CHAMBAL","GSFC","COROMANDEL","NFL","RCF","GNFC",
+    "DEEPAKNTR","AARTI","VINATI","CLEAN","TATACHEM","GHCL",
+    "NAVINFLUOR","FLUOROCHEM","SRF","ATUL","NOCIL","PCBL",
+    "BALRAMCHIN","TRIVENI","DWARIKESH","RENUKA","EID",
+    "MCDOWELL-N","RADICO","GLOBUSMED","UNITDSPR",
+    "VGUARD","ORIENTELEC","CROMPTON","BLUESTARCO","SYMPHONY","AMBER",
+    "BATAINDIA","VIPIND","SAFARI","SKFINDIA","NCC","HCC","KNR",
+    "PNCINFRA","AHLUWALIA","JKIL","ITD","WELCORP","RATNAMANI",
+    "MAHSEAMLES","HLEGLAS","FINOLEX","KPIL","GPPL","JYOTI",
+    "TRIL","INOX","PVR","SAREGAMA","TIPS","SHEMAROO",
+    "ASTERDM","NHPC","SJVN","NBCC","ENGINERSIN","RITES","IRCON",
+    "CAPACITE","PSPPROJECT","DILIPBUILDCON","GAYAPROJ",
+    "TANLA","ONMOBILE","LATENTVIEW","HAPPYMINDS","INTELLECT",
+    "ROUTE","GOCOLORS","CAMS","CDSL","BSE","MCX",
 ]
-NSE_UNIVERSE = list(dict.fromkeys(NSE_UNIVERSE))
 
+# Remove duplicates
+NSE_SYMBOLS = list(dict.fromkeys(NSE_SYMBOLS))
 
 def sma(v, n):
     if len(v) < n: return None
     return sum(v[-n:]) / n
 
 def pchg(v, n):
-    if len(v) < n+1: return None
+    if len(v) < n + 1: return None
     b = v[-(n+1)]
-    return ((v[-1]-b)/b*100) if b else None
+    return ((v[-1] - b) / b * 100) if b else None
 
-def analyse(sym, h):
+def analyse(sym, h, ltp=None):
     if h is None or h.empty: return None
     try:
         c  = list(h["Close"].dropna())
         hh = list(h["High"].dropna())
         lo = list(h["Low"].dropna())
         v  = list(h["Volume"].dropna())
-    except:
-        return None
+    except: return None
     if len(c) < 200: return None
-    cmp = float(c[-1])
+
+    cmp    = float(ltp) if ltp else float(c[-1])
     if cmp < MIN_PRICE: return None
 
-    s50   = sma(c,50);  s150=sma(c,150); s200=sma(c,200)
-    s200p = sma(c[:-30],200) if len(c)>=230 else None
-    hi52  = max(hh[-252:]) if len(hh)>=252 else max(hh)
-    lo52  = min(lo[-252:]) if len(lo)>=252 else min(lo)
-    hi30  = max(hh[-30:])  if len(hh)>=30  else max(hh)
-    lo30  = min(lo[-30:])  if len(lo)>=30  else min(lo)
-    hi60  = max(hh[-60:])  if len(hh)>=60  else max(hh)
-    lo60  = min(lo[-60:])  if len(lo)>=60  else min(lo)
-    v30   = sum(v[-30:])/30 if len(v)>=30 else None
-    v63   = sum(v[-63:])/63 if len(v)>=63 else None
-    r3m   = pchg(c,63)
+    s50    = sma(c, 50); s150 = sma(c, 150); s200 = sma(c, 200)
+    s200p  = sma(c[:-30], 200) if len(c) >= 230 else None
+    hi52   = max(hh[-252:]) if len(hh) >= 252 else max(hh)
+    lo52   = min(lo[-252:]) if len(lo) >= 252 else min(lo)
+    hi30   = max(hh[-30:])  if len(hh) >= 30  else max(hh)
+    lo30   = min(lo[-30:])  if len(lo) >= 30  else min(lo)
+    hi60   = max(hh[-60:])  if len(hh) >= 60  else max(hh)
+    lo60   = min(lo[-60:])  if len(lo) >= 60  else min(lo)
+    v30    = sum(v[-30:]) / 30 if len(v) >= 30 else None
+    v63    = sum(v[-63:]) / 63 if len(v) >= 63 else None
+    r3m    = pchg(c, 63)
 
-    tt = [False]*8
+    tt = [False] * 8
     if s200:
         tt[0] = cmp > s200
         tt[1] = (s200 > s200p) if s200p else False
-        if s150:         tt[2] = s150 > s200
-        if s50 and s150: tt[3] = s50 > s150 and s50 > s200
-        if s50:          tt[4] = cmp > s50
-        if lo52:         tt[5] = cmp >= lo52 * 1.25
-        if hi52:         tt[6] = cmp >= hi52 * 0.75
+        if s150:           tt[2] = s150 > s200
+        if s50 and s150:   tt[3] = s50 > s150 and s50 > s200
+        if s50:            tt[4] = cmp > s50
+        if lo52:           tt[5] = cmp >= lo52 * 1.25
+        if hi52:           tt[6] = cmp >= hi52 * 0.75
         tt[7] = (r3m or 0) > 5
-    if not tt[0]: return None
 
-    tts  = sum(tt)
-    rng30= ((hi30-lo30)/lo30*100) if lo30 else None
-    rng60= ((hi60-lo60)/lo60*100) if lo60 else None
-    r30f = rng30 is not None and rng30 < 10
-    r60f = rng60 is not None and rng60 < 20
-    vcp  = r30f and r60f
-    rs_f = (r3m or 0) - 5
-    vq   = (v30/v63*100) if (v30 and v63) else None
-    d200 = ((cmp-s200)/s200*100) if s200 else None
-    trisk= ((cmp-lo30)/cmp*100) if lo30 else 7.0
+    if not tt[0]: return None
+    tts = sum(tt)
+
+    rng30  = ((hi30 - lo30) / lo30 * 100) if lo30 else None
+    rng60  = ((hi60 - lo60) / lo60 * 100) if lo60 else None
+    r30f   = rng30 is not None and rng30 < 10
+    r60f   = rng60 is not None and rng60 < 20
+    vcp    = r30f and r60f
+    rs_f   = (r3m or 0) - 5
+    vq     = (v30 / v63 * 100) if (v30 and v63) else None
+    d200   = ((cmp - s200) / s200 * 100) if s200 else None
+    trisk  = ((cmp - lo30) / cmp * 100) if lo30 else 7.0
 
     sc = 0
-    sc += (tts/8)*35
+    sc += (tts / 8) * 35
     sc += 22 if rs_f > 0 else 0
-    sc += min(vq or 0, 100)/100*18
+    sc += min(vq or 0, 100) / 100 * 18
     if r30f: sc += 7
     if r60f: sc += 7
     sc = min(round(sc), 100)
 
-    if   tts>=8 and rs_f>0 and sc>=78: grade="A+"
-    elif tts>=7 and rs_f>0 and sc>=62: grade="A"
-    elif tts>=6 and sc>=46:            grade="B+"
-    else:                              grade="B"
+    if   tts >= 8 and rs_f > 0 and sc >= 78: grade = "A+"
+    elif tts >= 7 and rs_f > 0 and sc >= 62: grade = "A"
+    elif tts >= 6 and sc >= 46:               grade = "B+"
+    else:                                      grade = "B"
 
-    ri    = CAPITAL*RISK_PCT*0.75
-    rps   = cmp*trisk/100
-    shares= int(ri/rps) if rps > 0 else 0
-    entry = round(cmp*1.005, 2)
-    stop_p= round(lo30, 2) if lo30 else round(cmp*0.93, 2)
-    t1    = round(entry + 2*(entry-stop_p), 2)
+    ri     = CAPITAL * RISK_PCT * 0.75
+    rps    = cmp * trisk / 100
+    shares = int(ri / rps) if rps > 0 else 0
+    entry  = round(cmp * 1.005, 2)
+    stop_p = round(lo30, 2) if lo30 else round(cmp * 0.93, 2)
+    t1     = round(entry + 2 * (entry - stop_p), 2)
 
-    return {"sym":sym,"cmp":round(cmp,2),"tts":tts,"tt":tt,
-            "grade":grade,"score":sc,"s50":round(s50 or 0,2),
-            "s150":round(s150 or 0,2),"s200":round(s200 or 0,2),
-            "rs":round(rs_f,2),"r3m":round(r3m or 0,2),
-            "vq":round(vq or 0,1),"r30f":r30f,"r60f":r60f,"vcp":vcp,
-            "d200":round(d200 or 0,1),"trisk":round(trisk,1),
-            "entry":entry,"stop":stop_p,"t1":t1,
-            "shares":shares,"posval":round(shares*cmp)}
+    return {"sym": sym, "cmp": round(cmp, 2), "tts": tts, "tt": tt,
+            "grade": grade, "score": sc,
+            "s50": round(s50 or 0, 2), "s150": round(s150 or 0, 2), "s200": round(s200 or 0, 2),
+            "rs": round(rs_f, 2), "r3m": round(r3m or 0, 2),
+            "vq": round(vq or 0, 1), "r30f": r30f, "r60f": r60f, "vcp": vcp,
+            "d200": round(d200 or 0, 1), "trisk": round(trisk, 1),
+            "entry": entry, "stop": stop_p, "t1": t1,
+            "shares": shares, "posval": round(shares * cmp)}
 
-def get_nifty():
+def mkt_dir(nh):
+    if nh is None or nh.empty or len(nh) < 200:
+        return {"regime": "UNKNOWN", "exposure": 75, "cmp": 0,
+                "s50": 0, "s150": 0, "s200": 0, "r1m": 0, "r3m": 0,
+                "vix": None, "signals": ["Nifty data unavailable"]}
+    c   = list(nh["Close"].dropna())
+    cmp = c[-1]; s50 = sma(c,50); s150 = sma(c,150); s200 = sma(c,200)
+    r1m = pchg(c,21); r3m = pchg(c,63)
+
+    # VIX from yfinance
     try:
-        df = yf.download("^NSEI", period="2y", interval="1d",
-                         auto_adjust=True, progress=False)
-        if df is None or df.empty: return []
-        return list(df["Close"].dropna())
-    except Exception as e:
-        print(f"  Nifty error: {e}"); return []
+        vix_data = yf.download("^INDIAVIX", period="5d", interval="1d",
+                                progress=False, auto_adjust=True)
+        vix_val  = float(vix_data["Close"].dropna().iloc[-1])
+    except:
+        vix_val = None
 
-def get_sectors():
-    tickers = {"BANKNIFTY":"^NSEBANK","IT":"^CNXIT","PHARMA":"^CNXPHARMA",
-               "AUTO":"^CNXAUTO","FMCG":"^CNXFMCG","METAL":"^CNXMETAL",
-               "REALTY":"^CNXREALTY","ENERGY":"^CNXENERGY"}
-    result = {}
-    for name, tkr in tickers.items():
-        try:
-            df = yf.download(tkr, period="1y", interval="1d",
-                             auto_adjust=True, progress=False)
-            if df is not None and not df.empty:
-                result[name] = list(df["Close"].dropna())
-        except:
-            pass
-    return result
-
-def mkt_dir(closes):
-    if not closes or len(closes) < 200:
-        return {"regime":"UNKNOWN","exposure":75,"cmp":0,"s50":0,"s150":0,"s200":0,
-                "r1m":0,"r3m":0,"signals":["Nifty data unavailable"]}
-    c   = closes; cmp=c[-1]
-    s50=sma(c,50); s150=sma(c,150); s200=sma(c,200)
-    r1m=pchg(c,21); r3m=pchg(c,63)
-    if s200 and cmp>s200 and s50 and cmp>s50:
-        regime="BULL"; exposure=100
-    elif s200 and cmp>s200:
-        regime="BULL-WEAK"; exposure=75
-    elif s150 and cmp>s150:
-        regime="TRANSITION"; exposure=50
+    if s200 and cmp > s200 and s50 and cmp > s50:
+        regime   = "BULL-CAUTION" if (vix_val or 0) > 22 else "BULL"
+        exposure = 75 if (vix_val or 0) > 22 else 100
+    elif s200 and cmp > s200:
+        regime = "BULL-WEAK"; exposure = 75
+    elif s150 and cmp > s150:
+        regime = "TRANSITION"; exposure = 50
     else:
-        regime="BEAR"; exposure=25
-    sigs=[]
-    sigs.append("Price > 50 SMA ✅" if (s50 and cmp>s50) else "Price < 50 SMA ⚠")
-    sigs.append("Price > 200 SMA ✅" if (s200 and cmp>s200) else "Price < 200 SMA ❌")
-    if r3m: sigs.append(f"Nifty 3M: {r3m:+.1f}%")
-    return {"regime":regime,"exposure":exposure,"cmp":round(cmp,2),
-            "s50":round(s50 or 0,2),"s150":round(s150 or 0,2),"s200":round(s200 or 0,2),
-            "r1m":round(r1m or 0,2),"r3m":round(r3m or 0,2),"signals":sigs}
+        regime = "BEAR"; exposure = 25
 
-def sect_rot(sector_closes):
-    out=[]
-    for name, closes in sector_closes.items():
-        r1m=pchg(closes,21); r3m=pchg(closes,63)
-        s200=sma(closes,200); cmp=closes[-1] if closes else 0
-        ab200=cmp>s200 if s200 else False
-        mom=(r1m or 0)*0.5+(r3m or 0)*0.5
-        tier="HOT" if mom>5 and ab200 else "WARM" if mom>0 else "COLD"
-        out.append({"name":name,"r1m":round(r1m or 0,2),"r3m":round(r3m or 0,2),
-                    "tier":tier,"momentum":round(mom,2)})
-    return sorted(out, key=lambda x:x["momentum"], reverse=True)
+    if (vix_val or 0) > 30: exposure = min(exposure, 25)
+    elif (vix_val or 0) > 22: exposure = min(exposure, 50)
+
+    sigs = []
+    sigs.append("Price > 50 SMA ✅" if (s50 and cmp > s50) else "Price < 50 SMA ⚠")
+    sigs.append("Price > 200 SMA ✅" if (s200 and cmp > s200) else "Price < 200 SMA ❌")
+    if r3m: sigs.append(f"Nifty 3M: {r3m:+.1f}%")
+    if vix_val: sigs.append(f"India VIX: {vix_val:.1f}")
+
+    return {"regime": regime, "exposure": exposure, "cmp": round(cmp, 2),
+            "s50": round(s50 or 0, 2), "s150": round(s150 or 0, 2), "s200": round(s200 or 0, 2),
+            "r1m": round(r1m or 0, 2), "r3m": round(r3m or 0, 2),
+            "vix": vix_val, "signals": sigs}
+
+def sect_rot():
+    sectors = {
+        "BANKNIFTY": "^NSEBANK", "NIFTYIT": "^CNXIT", "NIFTYPHARMA": "^CNXPHARMA",
+        "NIFTYAUTO": "^CNXAUTO", "NIFTYFMCG": "^CNXFMCG", "NIFTYMETAL": "^CNXMETAL",
+        "NIFTYREALTY": "^CNXREALTY", "NIFTYENERGY": "^CNXENERGY",
+    }
+    result = []
+    for label, ticker in sectors.items():
+        try:
+            h = yf.download(ticker, period="9mo", interval="1d",
+                            progress=False, auto_adjust=True)
+            if h.empty or len(h) < 30: continue
+            c    = list(h["Close"].dropna())
+            r1m  = pchg(c, 21); r3m = pchg(c, 63); r6m = pchg(c, 126)
+            s200 = sma(c, 200); cmp = c[-1]
+            ab200= cmp > s200 if s200 else False
+            mom  = (r1m or 0)*0.4 + (r3m or 0)*0.4 + (r6m or 0)*0.2
+            tier = "HOT" if mom > 5 and ab200 else "WARM" if mom > 0 else "COLD"
+            result.append({"name": label, "r1m": round(r1m or 0, 2),
+                           "r3m": round(r3m or 0, 2), "tier": tier, "momentum": round(mom, 2)})
+        except: pass
+    return sorted(result, key=lambda x: x["momentum"], reverse=True)
 
 def build_html(results, mkt, sectors, scan_time, total):
     results = sorted(results, key=lambda x:x["score"], reverse=True)
@@ -282,61 +328,76 @@ tr:hover td{{background:rgba(255,255,255,.03)}}</style></head><body>
   <span>Not financial advice · {scan_time}</span>
 </div></body></html>"""
 
+
 def main():
     print("="*60)
     print("  GAURAV'S TRADING SYSTEM v8 — 100% yfinance")
     print(f"  {datetime.datetime.now().strftime('%Y-%m-%d %H:%M IST')}")
     print("="*60)
 
-    print("\n[1/3] Fetching Nifty + sector data...")
-    nifty_closes = get_nifty()
-    print(f"  Nifty: {'OK '+str(len(nifty_closes))+' bars' if nifty_closes else 'FAILED'}")
-    sector_closes = get_sectors()
-    print(f"  Sectors: {len(sector_closes)} fetched")
-    mkt     = mkt_dir(nifty_closes)
-    sectors = sect_rot(sector_closes)
+    # ── Market direction (Nifty 50) ──
+    print("\n[1/3] Fetching Nifty 50 & sector data...")
+    nh = yf.download("^NSEI", period="14mo", interval="1d",
+                     progress=False, auto_adjust=True)
+    mkt     = mkt_dir(nh)
+    sectors = sect_rot()
     print(f"  Regime: {mkt['regime']} | Exposure: {mkt['exposure']}%")
 
-    print(f"\n[2/3] Downloading {len(NSE_UNIVERSE)} stocks (1 year OHLCV)...")
-    yf_syms = [s+".NS" for s in NSE_UNIVERSE]
-    try:
-        raw = yf.download(yf_syms, period="1y", interval="1d",
-                          group_by="ticker", auto_adjust=True,
-                          progress=False, threads=True)
-        print(f"  Download complete")
-    except Exception as e:
-        print(f"  ERROR: {e}"); sys.exit(1)
+    # ── Batch download: LTP + history in ONE call per batch ──
+    print(f"\n[2/3] Downloading price history for {len(NSE_SYMBOLS)} stocks...")
+    yf_syms  = [s + ".NS" for s in NSE_SYMBOLS]
+    results  = []
+    BATCH    = 100
 
-    print(f"\n[3/3] Running Minervini analysis...")
-    results = []
-    for i, sym in enumerate(NSE_UNIVERSE):
-        yf_sym = sym + ".NS"
+    for i in range(0, len(yf_syms), BATCH):
+        batch_yf  = yf_syms[i:i+BATCH]
+        batch_sym = NSE_SYMBOLS[i:i+BATCH]
         try:
-            h = raw[yf_sym] if yf_sym in raw.columns.get_level_values(0) else None
-            if h is None or h.empty: continue
-            r = analyse(sym, h)
-            if r: results.append(r)
-        except Exception:
-            pass
-        if (i+1) % 50 == 0:
-            print(f"  [{i+1}/{len(NSE_UNIVERSE)}] Qualified: {len(results)}")
+            raw = yf.download(
+                batch_yf,
+                period="15mo",
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False,
+                threads=True
+            )
+            for yf_sym, sym in zip(batch_yf, batch_sym):
+                try:
+                    if len(batch_yf) == 1:
+                        h = raw
+                    else:
+                        h = raw[yf_sym]
+                    h = h.dropna(how="all")
+                    if len(h) < 200: continue
+                    ltp = float(h["Close"].iloc[-1])
+                    r   = analyse(sym, h, ltp)
+                    if r: results.append(r)
+                except: pass
+        except Exception as e:
+            print(f"  Batch {i//BATCH+1} error: {e}")
+        pct = min((i + BATCH), len(yf_syms)) / len(yf_syms) * 100
+        print(f"  Batch {i//BATCH+1}/{(len(yf_syms)+BATCH-1)//BATCH} done | Qualified so far: {len(results)} | {pct:.0f}%")
+        time.sleep(1)
 
     scan_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M IST")
     print(f"\n{'='*60}")
     print(f"  COMPLETE · Qualified: {len(results)}")
-    print(f"  TT 7-8:  {sum(1 for r in results if r['tts']>=7)}")
-    print(f"  A+:      {sum(1 for r in results if r['grade']=='A+')}")
-    print(f"  VCP:     {sum(1 for r in results if r['vcp'])}")
+    print(f"  TT 7-8: {sum(1 for r in results if r['tts']>=7)}")
+    print(f"  A+: {sum(1 for r in results if r['grade']=='A+')}")
+    print(f"  VCP: {sum(1 for r in results if r['vcp'])}")
     if results:
-        top5 = sorted(results, key=lambda x:x["score"], reverse=True)[:5]
+        top5 = sorted(results, key=lambda x: x["score"], reverse=True)[:5]
         print("\n  TOP 5:")
-        for i,s in enumerate(top5):
-            print(f"  {i+1}. {s['sym']:<14} Score:{s['score']} {s['grade']} TT:{s['tts']}/8 Rs.{s['cmp']:,.0f}")
+        for i, s in enumerate(top5):
+            print(f"  {i+1}. {s['sym']:<14} Score:{s['score']} {s['grade']} TT:{s['tts']}/8 ₹{s['cmp']:,.0f}")
 
-    html = build_html(results, mkt, sectors, scan_time, len(NSE_UNIVERSE))
-    Path("docs").mkdir(exist_ok=True)
-    Path("docs/index.html").write_text(html, encoding="utf-8")
-    print(f"\n  Dashboard saved → docs/index.html")
+    html = build_html(results, mkt, sectors, scan_time,
+                      len(NSE_SYMBOLS), len(results), len(NSE_SYMBOLS))
+    out  = Path("docs/index.html")
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    print(f"\n  Dashboard → docs/index.html")
     print("="*60)
 
 if __name__ == "__main__":
