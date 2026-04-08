@@ -22,57 +22,58 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests dhanhq
 
-      - name: Auto-generate Dhan Access Token
+      - name: Generate Dhan Access Token
         env:
           DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
           DHAN_API_SECRET: ${{ secrets.DHAN_API_SECRET }}
+          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
         run: |
           python3 << 'PYEOF'
-          import requests, os, sys, json
+          import requests, os, sys
 
           client_id  = os.environ.get("DHAN_CLIENT_ID", "").strip()
           api_secret = os.environ.get("DHAN_API_SECRET", "").strip()
-
-          print(f"Client ID: {client_id}")
-          print(f"API Secret length: {len(api_secret)}")
-
-          # Try Dhan token generation endpoints
-          endpoints = [
-              ("POST", "https://api.dhan.co/v2/generateToken",
-               {"clientId": client_id, "secret": api_secret}),
-              ("POST", "https://api.dhan.co/generateToken",
-               {"clientId": client_id, "secret": api_secret}),
-          ]
+          fallback   = os.environ.get("DHAN_ACCESS_TOKEN", "").strip()
 
           token = ""
-          for method, url, body in endpoints:
-              try:
-                  r = requests.post(url,
-                      headers={"Content-Type": "application/json"},
-                      json=body, timeout=30)
-                  print(f"  {url} → {r.status_code}: {r.text[:200]}")
-                  if r.status_code == 200:
-                      d = r.json()
-                      token = (d.get("accessToken") or d.get("access_token")
-                               or d.get("token") or d.get("jwt",""))
-                      if token:
-                          print(f"Token OK (len={len(token)})")
-                          break
-              except Exception as e:
-                  print(f"  Error: {e}")
+
+          # Dhan token generation via partner API
+          if client_id and api_secret:
+              for url, body in [
+                  ("https://api.dhan.co/v2/token/generate",
+                   {"clientId": client_id, "secret": api_secret}),
+                  ("https://api.dhan.co/token",
+                   {"clientId": client_id, "secret": api_secret}),
+                  ("https://dhanhq.co/api/v2/generateToken",
+                   {"clientId": client_id, "secret": api_secret}),
+              ]:
+                  try:
+                      r = requests.post(url,
+                          headers={"Content-Type": "application/json"},
+                          json=body, timeout=15)
+                      print(f"{url} → {r.status_code}: {r.text[:150]}")
+                      if r.status_code == 200:
+                          d = r.json()
+                          token = (d.get("accessToken") or d.get("access_token")
+                                   or d.get("token") or d.get("jwt",""))
+                          if token:
+                              print(f"Auto-token OK (len={len(token)})")
+                              break
+                  except Exception as e:
+                      print(f"  {e}")
+
+          # Fallback to stored token
+          if not token and fallback:
+              token = fallback
+              print(f"Using stored token (len={len(token)})")
 
           if not token:
-              print("WARN: Could not auto-generate token — using stored fallback")
-              token = os.environ.get("DHAN_ACCESS_TOKEN_BACKUP","")
-
-          if not token:
-              print("ERROR: No token available"); sys.exit(1)
+              print("ERROR: No token"); sys.exit(1)
 
           with open(os.environ["GITHUB_ENV"], "a") as f:
               f.write(f"DHAN_ACCESS_TOKEN={token}\n")
-          print("Token written to env")
           PYEOF
 
       - name: Run Market Scanner
