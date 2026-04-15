@@ -215,7 +215,7 @@ def mkt_dir(nh):
     if r3m: sigs.append(f"Nifty 3M: {r3m:+.1f}%")
     if vix_val: sigs.append(f"India VIX: {vix_val:.1f}")
 
-        return {"regime": regime, "exposure": exposure, "cmp": round(float(cmp or 0), 2),
+    return {"regime": regime, "exposure": exposure, "cmp": round(float(cmp or 0), 2),
             "s50": round(s50 or 0, 2), "s150": round(s150 or 0, 2), "s200": round(s200 or 0, 2),
             "r1m": round(r1m or 0, 2), "r3m": round(r3m or 0, 2),
             "vix": vix_val, "signals": sigs}
