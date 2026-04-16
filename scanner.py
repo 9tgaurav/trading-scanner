@@ -1,7 +1,7 @@
 """
 GAURAV'S TRADING SYSTEM — MARKET SCANNER v8
 - 100% yfinance: LTP + Historical data
-- Zero tokens, zero expiry, works forever
+- Zero tokens, zero expihry, works forever
 - NSE universe: Nifty 500 constituents
 - Minervini SEPA criteria + VCP detection
 """
@@ -184,7 +184,7 @@ def mkt_dir(nh):
         return {"regime": "UNKNOWN", "exposure": 75, "cmp": 0,
                 "s50": 0, "s150": 0, "s200": 0, "r1m": 0, "r3m": 0,
                 "vix": None, "signals": ["Nifty data unavailable"]}
-    c   = list(nh["Close"].dropna())
+    c   = list(nh["Close"].squeeze().dropna())
     cmp = c[-1]; s50 = sma(c,50); s150 = sma(c,150); s200 = sma(c,200)
     r1m = pchg(c,21); r3m = pchg(c,63)
 
@@ -192,7 +192,7 @@ def mkt_dir(nh):
     try:
         vix_data = yf.download("^INDIAVIX", period="5d", interval="1d",
                                 progress=False, auto_adjust=True)
-        vix_val  = float(vix_data["Close"].dropna().iloc[-1])
+        vix_val  = float(vix_data["Close"].squeeze().dropna().iloc[-1])
     except:
         vix_val = None
 
@@ -232,7 +232,7 @@ def sect_rot():
             h = yf.download(ticker, period="9mo", interval="1d",
                             progress=False, auto_adjust=True)
             if h.empty or len(h) < 30: continue
-            c    = list(h["Close"].dropna())
+            c    = list(h["Close"].squeeze().dropna())
             r1m  = pchg(c, 21); r3m = pchg(c, 63); r6m = pchg(c, 126)
             s200 = sma(c, 200); cmp = c[-1]
             ab200= cmp > s200 if s200 else False
@@ -365,7 +365,7 @@ def main():
             for yf_sym, sym in zip(batch_yf, batch_sym):
                 try:
                     if len(batch_yf) == 1:
-                        h = raw
+                        h = raw; h.columns = [col[0] if isinstance(col, tuple) else col for col in h.columns]
                     else:
                         h = raw[yf_sym]
                     h = h.dropna(how="all")
