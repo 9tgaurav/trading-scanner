@@ -392,7 +392,7 @@ def main():
         for i, s in enumerate(top5):
             print(f"  {i+1}. {s['sym']:<14} Score:{s['score']} {s['grade']} TT:{s['tts']}/8 ₹{s['cmp']:,.0f}")
 
-    html = build_html(results, mkt, sectors, scan_time)
+    html = build_html(results, mkt, sectors, scan_time, len(NSE_SYMBOLS))
     out  = Path("docs/index.html")
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
