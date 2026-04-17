@@ -243,34 +243,85 @@ def sect_rot():
         except: pass
     return sorted(result, key=lambda x: x["momentum"], reverse=True)
 
-def send_telegram(results):
-    import urllib.request, json, os
+def send_telegram(results, mkt, scan_time):
+    import urllib.request, json, os, datetime
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat  = os.environ.get("TELEGRAM_CHAT_ID", "")
     if not token or not chat:
         print("  Telegram: no credentials, skipping")
         return
-    top = [r for r in results if r.get("grade") in ("A+", "A")][:10]
-    if not top:
-        print("  Telegram: no A+/A picks to send")
-        return
-    lines = ["*Gaurav Trading Scanner*", f"_{len(results)} scanned · {len(top)} top picks_", ""]
-    for r in top:
-        vcp = " VCP" if r.get("vcp") else ""
-        lines.append(
-            f"*{r['sym']}* {r['grade']}{vcp} | Rs.{r['cmp']:.0f} | "
-            f"Entry Rs.{r['entry']:.0f} | Stop Rs.{r['stop']:.0f} | Score {r['score']}"
-        )
+
+    regime = mkt.get("regime", "UNKNOWN")
+    exposure = mkt.get("exposure", 75)
+    vix = mkt.get("vix")
+    total = len(results)
+
+    # Market action line
+    if regime == "BULL" and exposure == 100:
+        action_line = "\u2705 Market BULL. Full exposure. Look for A+ setups."
+    elif regime in ("BULL-WEAK", "BULL-CAUTION"):
+        action_line = "\u26a0\ufe0f Market cautious. Selective entries only. Size down."
+    elif regime == "TRANSITION":
+        action_line = "\u23f3 Market transitioning. Wait for confirmation. No new entries."
+    else:
+        action_line = "\u274c Market BEAR. No new entries.\nHold existing positions. Protect capital.\nMonitor stops daily."
+
+    # Regime emoji
+    reg_emoji = {"BULL": "\U0001f7e2", "BULL-WEAK": "\U0001f7e1", "BULL-CAUTION": "\U0001f7e1",
+                 "TRANSITION": "\U0001f7e0", "BEAR": "\U0001f534", "UNKNOWN": "\u26aa"}.get(regime, "\u26aa")
+
+    # No new trades label
+    regime_label = "NO NEW TRADES" if regime in ("BEAR", "UNKNOWN") else "SELECTIVE ENTRIES" if regime in ("TRANSITION", "BULL-CAUTION", "BULL-WEAK") else "FULL DEPLOYMENT"
+
+    # Stage 2 breadth
+    stage2 = [r for r in results if r.get("tts", 0) >= 7]
+    breadth_pct = round(len(stage2) / total * 100) if total else 0
+
+    # Top picks (A+ first, then A)
+    top = sorted([r for r in results if r.get("grade") in ("A+", "A")], key=lambda x: x["score"], reverse=True)[:5]
+
+    date_str = datetime.datetime.now().strftime("%d-%b-%Y")
+
+    lines = [
+        f"\U0001f4ca *MORNING BRIEFING \u2014 {date_str}*",
+        f"_Minervini SEPA | yfinance | Zero token expiry_",
+        "\u2014" * 20,
+        "",
+        f"\U0001f4c8 *MARKET REGIME*",
+        f"{reg_emoji} {regime}",
+        f"\u26d4 Regime: *{regime_label}*",
+        f"\U0001f4ca Stage 2 breadth: {len(stage2)}/{total} stocks ({breadth_pct}%)",
+    ]
+    if vix:
+        lines.append(f"\U0001f321\ufe0f India VIX: {vix:.1f}")
+
+    lines += ["", "\u2014" * 20, ""]
+
+    if top:
+        lines.append("\U0001f3af *TOP SETUPS TO MONITOR*")
+        for i, r in enumerate(top, 1):
+            vcp_tag = " | VCP\u2714" if r.get("vcp") else ""
+            lines.append(f"{i}. *{r['sym']}* \u2014 C:{r['score']}/100 | {r['grade']}{vcp_tag}")
+        lines += ["", "\u2014" * 20, ""]
+    else:
+        lines += ["\U0001f6ab No A+/A setups today.", "", "\u2014" * 20, ""]
+
+    lines += [
+        "\U0001f4cc *TODAY'S PRIORITY*",
+        action_line,
+    ]
+    if vix and vix > 22:
+        lines.append(f"\u26a0\ufe0f VIX elevated ({vix:.1f}) — reduce position sizes.")
+
     msg = "\n".join(lines)
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     data = json.dumps({"chat_id": chat, "text": msg, "parse_mode": "Markdown"}).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:
         urllib.request.urlopen(req, timeout=10)
-        print(f"  Telegram: sent {len(top)} picks")
+        print(f"  Telegram: sent briefing ({len(top)} top picks)")
     except Exception as e:
         print(f"  Telegram: failed - {e}")
-
 
 def build_html(results, mkt, sectors, scan_time, total):
     results = sorted(results, key=lambda x:x["score"], reverse=True)
@@ -425,7 +476,7 @@ def main():
     out  = Path("docs/index.html")
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
-    send_telegram(results)
+    send_telegram(results, mkt, scan_time)
     print(f"\n  Dashboard → docs/index.html")
     print("="*60)
 
