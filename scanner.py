@@ -243,6 +243,35 @@ def sect_rot():
         except: pass
     return sorted(result, key=lambda x: x["momentum"], reverse=True)
 
+def send_telegram(results):
+    import urllib.request, json, os
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat  = os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not chat:
+        print("  Telegram: no credentials, skipping")
+        return
+    top = [r for r in results if r.get("grade") in ("A+", "A")][:10]
+    if not top:
+        print("  Telegram: no A+/A picks to send")
+        return
+    lines = ["*Gaurav Trading Scanner*", f"_{len(results)} scanned · {len(top)} top picks_", ""]
+    for r in top:
+        vcp = " VCP" if r.get("vcp") else ""
+        lines.append(
+            f"*{r['sym']}* {r['grade']}{vcp} | Rs.{r['cmp']:.0f} | "
+            f"Entry Rs.{r['entry']:.0f} | Stop Rs.{r['stop']:.0f} | Score {r['score']}"
+        )
+    msg = "\n".join(lines)
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    data = json.dumps({"chat_id": chat, "text": msg, "parse_mode": "Markdown"}).encode()
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print(f"  Telegram: sent {len(top)} picks")
+    except Exception as e:
+        print(f"  Telegram: failed - {e}")
+
+
 def build_html(results, mkt, sectors, scan_time, total):
     results = sorted(results, key=lambda x:x["score"], reverse=True)
     tt7  = sum(1 for r in results if r["tts"]>=7)
@@ -396,6 +425,7 @@ def main():
     out  = Path("docs/index.html")
     out.parent.mkdir(exist_ok=True)
     out.write_text(html, encoding="utf-8")
+    send_telegram(results)
     print(f"\n  Dashboard → docs/index.html")
     print("="*60)
 
