@@ -280,7 +280,7 @@ def build_html(results, mkt, sectors, scan_time, total):
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gaurav's Trading Dashboard - {scan_time}</title>
 <style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 *{{box-sizing:border-box;margin:0;padding:0}}body{{background:#0a0e1a;color:#e2e8f0;font-family:'IBM Plex Sans',sans-serif;font-size:13px}}
-.tw{{overflow-x:auto}}table{{width:100%;border-collapse:collapse;font-size:11px}}
+.tw{{overflow-x:auto};overflow-y:visible}}table{{width:100%;border-collapse:collapse;font-size:11px}}
 th{{background:#0f1525;color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.07em;padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;position:sticky;top:0;z-index:5}}
 tr:hover td{{background:rgba(255,255,255,.03)}}</style></head><body>
 <div style="background:#0f1525;border-bottom:1px solid rgba(255,255,255,.07);padding:14px 20px;display:flex;justify-content:space-between;align-items:center">
