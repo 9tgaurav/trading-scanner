@@ -1,32 +1,119 @@
-name: Daily Market Scanner
+# SwingAI — Daily Scan on GitHub Actions
+# Runs every weekday at 9:05 AM IST (3:35 AM UTC)
+# No laptop needed. GitHub's servers do all the work.
+#
+# SETUP (one-time, 5 minutes):
+#   1. Push this repo to GitHub (github.com)
+#   2. Go to: Settings → Secrets and variables → Actions → New repository secret
+#   3. Add these secrets:
+#        GMAIL_USER       → your Gmail address (e.g. 9tgaurav@gmail.com)
+#        GMAIL_PASS       → 16-char App Password (NOT your Gmail password)
+#                           Get it: myaccount.google.com → Security → App Passwords
+#        TELEGRAM_TOKEN   → your bot token from @BotFather
+#        TELEGRAM_CHAT_ID → your chat ID from @userinfobot
+#        PORTFOLIO_INR    → your portfolio size in INR (e.g. 1000000 for ₹10L)
+#   4. Done. It will run automatically every weekday at 9:05 AM IST.
+#
+# Manual trigger: Go to Actions tab → "SwingAI Daily Scan" → "Run workflow"
+
+name: SwingAI Daily Scan
 
 on:
+  # Weekdays at 3:35 AM UTC = 9:05 AM IST
   schedule:
-    - cron: '0 11 * * 1-5'
-  workflow_dispatch:
+    - cron: "35 3 * * 1-5"
 
-permissions:
-  contents: write
+  # Also allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (scan only, no notifications)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
-  scan:
+  daily-scan:
+    name: "SwingAI Full Pipeline"
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     steps:
+      # ── 1. CHECKOUT ─────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Set up Python
+
+      # ── 2. PYTHON SETUP ──────────────────────────────────────────────────────
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. INSTALL DEPENDENCIES ──────────────────────────────────────────────
       - name: Install dependencies
-        run: pip install requests yfinance pandas numpy
-      - name: Run Market Scanner
-        run: python scanner.py
-      - name: Commit and push dashboard
         run: |
-          git config --global user.email "scanner@gaurav-trading.com"
-          git config --global user.name  "Trading Scanner Bot"
-          git add docs/index.html
-          git diff --staged --quiet || git commit -m "Dashboard update $(date +'%Y-%m-%d %H:%M IST')"
-          git push
+          pip install --upgrade pip
+          pip install yfinance pandas numpy requests
+
+      # ── 4. WRITE .env FROM SECRETS ───────────────────────────────────────────
+      - name: Configure environment
+        run: |
+          cat > .env << EOF
+          GMAIL_USER=${{ secrets.GMAIL_USER }}
+          GMAIL_PASS=${{ secrets.GMAIL_PASS }}
+          TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}
+          RECIPIENTS=${{ secrets.RECIPIENTS }}
+          EOF
+          echo "✓ .env written"
+
+      # ── 5. RUN PIPELINE ──────────────────────────────────────────────────────
+      - name: Run SwingAI pipeline
+        env:
+          PORTFOLIO_INR: ${{ secrets.PORTFOLIO_INR || '1000000' }}
+        run: |
+          PORTFOLIO=${PORTFOLIO_INR:-1000000}
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+
+          echo "================================================"
+          echo "  SwingAI Daily Scan — $(date '+%Y-%m-%d %H:%M IST')"
+          echo "  Portfolio: Rs${PORTFOLIO}"
+          echo "  Mode: $([ '$DRY_RUN' = 'true' ] && echo 'Dry Run' || echo 'Full Pipeline')"
+          echo "================================================"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            python run.py --portfolio $PORTFOLIO --dry-run
+          else
+            python run.py --portfolio $PORTFOLIO
+          fi
+
+      # ── 6. UPLOAD ARTIFACTS (scan results + logs) ────────────────────────────
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swingai-scan-${{ github.run_id }}
+          path: |
+            scan_results.json
+            logs/
+          retention-days: 30
+
+      # ── 7. SUMMARY ───────────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## SwingAI Daily Scan Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date '+%Y-%m-%d')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f scan_results.json ]; then
+            TOTAL=$(python3 -c "import json; d=json.load(open('scan_results.json')); print(len(d.get('results',[])))" 2>/dev/null || echo "—")
+            APLUS=$(python3 -c "import json; d=json.load(open('scan_results.json')); print(sum(1 for r in d.get('results',[]) if r['grade']=='A+'))" 2>/dev/null || echo "—")
+            echo "**Total Setups:** $TOTAL" >> $GITHUB_STEP_SUMMARY
+            echo "**A+ Setups:** $APLUS" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Check Telegram and Gmail for the full brief._" >> $GITHUB_STEP_SUMMARY

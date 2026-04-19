@@ -1,0 +1,24 @@
+# Secrets — NEVER commit
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Logs and outputs
+logs/
+*.log
+scan_results.json
+daily_brief_visual.html
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Virtual envs
+venv/
+env/
+.venv/
